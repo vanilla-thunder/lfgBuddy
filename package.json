@@ -1,0 +1,15 @@
+{
+  "name": "lfg-buddy",
+  "version": "0.1.0",
+  "description": "In-game overlay with cross-machine sync for LFG coordination",
+  "main": "main.js",
+  "scripts": {
+    "server": "node server/index.js",
+    "client": "electron . --dev",
+    "prod": "electron . --prod"
+  },
+  "dependencies": {
+    "electron": "^44.4.3",
+    "socket.io-client": "^4.7.5"
+  }
+}

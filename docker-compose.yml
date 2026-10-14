@@ -1,0 +1,17 @@
+services:
+
+  lfg-buddy:
+    build: ./server
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.lfg-buddy.rule=Host(`lfg.example.com`)'
+      - 'traefik.http.routers.lfg-buddy.tls.certresolver=letsencrypt'
+      - 'traefik.http.services.lfg-buddy.loadbalancer.server.port=3000'
+
+networks:
+  default:
+    name: web
+    external: true

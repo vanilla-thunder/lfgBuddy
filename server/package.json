@@ -1,0 +1,17 @@
+{
+  "name": "lfg-buddy-server",
+  "version": "0.1.0",
+  "description": "Sync server for LFG Buddy overlay",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pm2": "^7.0.4",
+    "socket.io": "^4.7.5"
+  },
+  "overrides": {
+    "js-yaml": "^4.3.2"
+  }
+}

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; img-src 'self' http://localhost:3000 https://lfg.example.com;">
+  <title>LFG Buddy</title>
+  <link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+
+  <!-- Setup screen -->
+  <div id="setup-screen" class="screen">
+    <div class="setup-panel">
+      <div class="logo">LFG Buddy</div>
+
+      <label>Room Code</label>
+      <input type="text" id="room-code" placeholder="e.g. TEAM-ALPHA" autocomplete="off" spellcheck="false" style="text-transform:uppercase">
+
+      <button class="connect-btn" id="connect-btn">Connect</button>
+      <div class="status-bar" id="status-bar"></div>
+    </div>
+  </div>
+
+  <!-- Overlay screen -->
+  <div id="overlay-screen" class="screen hidden">
+    <div class="overlay-panel">
+      <div class="reconnect-banner hidden" id="reconnect-banner">Reconnecting…</div>
+
+      <div class="activity-section">
+        <div class="hidden" id="activity-picker-view">
+          <div class="picker-bar">
+            <label class="guided-toggle hidden" title="Only you can interact with the dashboard and areas while this is on">
+              <input type="checkbox" class="guided-mode-checkbox"> Guided
+            </label>
+          </div>
+          <div class="activity-picker" id="activity-picker"></div>
+        </div>
+
+        <div id="activity-controls">
+          <div class="encounter-nav">
+            <button class="nav-btn" id="back-to-activities-btn" disabled>Back</button>
+            <button class="nav-btn" id="encounter-reset-btn" disabled>Reset</button>
+            <label class="guided-toggle hidden" title="Only you can interact with the dashboard and areas while this is on">
+              <input type="checkbox" class="guided-mode-checkbox"> Guided
+            </label>
+            <span class="encounter-label" id="encounter-label"></span>
+            <button class="nav-btn" id="encounter-prev-btn" disabled>‹</button>
+            <button class="nav-btn" id="encounter-next-btn" disabled>›</button>
+          </div>
+
+          <div class="encounter-wrap" id="encounter-wrap">
+            <img id="encounter-image" alt="">
+            <div id="area-layer"></div>
+          </div>
+          <div class="activity-hint">F8 - hide/show | lock/unlock - F9</div>
+        </div>
+      </div>
+
+      <div class="panel-footer">
+        <button class="disconnect-btn" id="disconnect-btn">Leave Room</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="icon-picker" class="icon-picker hidden"></div>
+
+  <script src="overlay.js"></script>
+</body>
+</html>

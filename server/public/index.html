@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LFG Buddy</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Setup -->
+  <div id="setup-screen" class="screen">
+    <div class="card setup-card">
+      <div class="logo">LFG Buddy</div>
+      <p class="subtitle">Join a room to sync with your party</p>
+
+      <div class="field">
+        <label for="room-code">Room Code</label>
+        <input type="text" id="room-code" placeholder="e.g. TEAM-ALPHA" autocomplete="off" spellcheck="false" maxlength="32">
+      </div>
+
+      <button class="btn-primary" id="connect-btn">Connect</button>
+      <div class="status-msg" id="status-msg"></div>
+    </div>
+  </div>
+
+  <!-- Room -->
+  <div id="room-screen" class="screen hidden">
+    <div class="card room-card">
+
+      <div class="room-header">
+        <div>
+          <div class="room-title">LFG Buddy</div>
+          <div class="room-code-label">ROOM: <span id="room-display"></span></div>
+        </div>
+        <div class="header-actions">
+          <label class="guided-toggle hidden" id="guided-toggle" title="Only you can interact with the dashboard and areas while this is on">
+            <input type="checkbox" id="guided-mode-checkbox"> Guided mode
+          </label>
+          <button class="btn-secondary hidden" id="overlay-visibility-btn" title="Show or hide the overlay window on the streamer's screen">Hide Overlay</button>
+          <button class="btn-secondary" id="copy-link-btn" title="Copy invite link">Copy Link</button>
+          <a class="btn-secondary" id="open-in-app-link" href="#" title="Join this room in the LFG Buddy overlay app">Open in App</a>
+          <button class="btn-danger" id="disconnect-btn">Leave</button>
+        </div>
+      </div>
+
+      <div class="reconnect-banner hidden" id="reconnect-banner">Connection lost — reconnecting…</div>
+
+      <div class="panel panel-activity">
+        <div class="activity-picker hidden" id="activity-picker"></div>
+
+        <div id="activity-controls">
+          <div class="encounter-nav">
+            <button class="btn-secondary" id="back-to-activities-btn">Back</button>
+            <button class="btn-secondary" id="encounter-reset-btn">Reset</button>
+            <span class="encounter-label" id="encounter-label"></span>
+            <button class="btn-secondary" id="encounter-prev-btn">‹ Prev</button>
+            <button class="btn-secondary" id="encounter-next-btn">Next ›</button>
+          </div>
+
+          <div class="encounter-wrap" id="encounter-wrap">
+            <img id="encounter-image" alt="">
+            <div id="area-layer"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="icon-picker" class="icon-picker hidden"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

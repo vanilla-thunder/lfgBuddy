@@ -1,0 +1,474 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Scale the whole overlay 1.25x. Viewport units (vh/vw) always resolve
+   against the real, unscaled viewport regardless of which element zoom is
+   applied to — so a descendant sized with vh/vw under a zoomed ancestor
+   gets that value applied, then the zoomed ancestor scales the result
+   again, inflating it well past the actual viewport. html/body/.screen use
+   percentage sizing instead (no such special-case), which scales
+   consistently with the rest of the zoomed page. */
+html, body {
+  height: 100%;
+}
+
+html {
+  zoom: 1.25;
+}
+
+body {
+  background: transparent;
+  /* Reserve the scrollbar's width even while overflow is hidden (locked
+     mode), so toggling F9 doesn't shift content sideways. */
+  scrollbar-gutter: stable;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 13px;
+  color: #dcddde;
+  overflow: hidden;
+  -webkit-app-region: no-drag;
+}
+
+/* Click-through mode can't scroll (no mouse events reach the page at all),
+   so only let content overflow-scroll once interactive. */
+body.interactive-mode {
+  overflow-y: auto;
+}
+
+.screen {
+  width: 100%;
+  min-height: 100%;
+  padding: 2px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Interactive-mode indicator (F9) — a green outline around the
+   window instead of a text pill, since the pill ate into the little space
+   the small overlay already has. outline-offset pulls it inward so it isn't
+   clipped by the window edge. */
+body.interactive-mode .setup-panel,
+body.interactive-mode .overlay-panel {
+  outline: 3px solid #57f287;
+  outline-offset: -2px;
+}
+
+/* Locked (click-through) mode — controls can't be clicked anyway, so hide
+   them along with the panel chrome. visibility (not display) keeps their
+   space reserved, so the encounter doesn't jump when toggling F9. */
+body:not(.interactive-mode) .nav-btn,
+body:not(.interactive-mode) .guided-toggle,
+body:not(.interactive-mode) .overlay-panel .panel-footer {
+  visibility: hidden;
+}
+
+body:not(.interactive-mode) .overlay-panel {
+  background: transparent;
+  border-color: transparent;
+}
+
+body:not(.interactive-mode) .encounter-wrap {
+  background: transparent;
+}
+
+/* ── Setup screen ── */
+
+.setup-panel {
+  background: rgba(28, 31, 35, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.logo {
+  font-size: 16px;
+  font-weight: 700;
+  color: #5865f2;
+  text-align: center;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+  -webkit-app-region: drag;
+  cursor: grab;
+}
+
+.setup-panel label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #8e9297;
+  text-transform: uppercase;
+  margin-bottom: -4px;
+}
+
+.setup-panel input {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 7px 10px;
+  color: #dcddde;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  width: 100%;
+}
+
+.setup-panel input:focus {
+  border-color: #5865f2;
+}
+
+.connect-btn {
+  margin-top: 4px;
+  background: #5865f2;
+  border: none;
+  border-radius: 4px;
+  padding: 9px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+}
+
+.connect-btn:hover:not(:disabled) {
+  background: #4752c4;
+}
+
+.connect-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.status-bar {
+  font-size: 11px;
+  text-align: center;
+  padding: 2px 0;
+  min-height: 16px;
+  color: transparent;
+}
+
+.status-bar.info {
+  color: #8e9297;
+}
+
+.status-bar.error {
+  color: #ed4245;
+}
+
+/* ── Overlay screen ── */
+
+.overlay-panel {
+  background: rgba(28, 31, 35, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.guided-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #000;
+  cursor: pointer;
+  user-select: none;
+  -webkit-app-region: no-drag;
+}
+
+.guided-toggle input {
+  width: auto;
+  cursor: pointer;
+}
+
+.activity-section {
+  padding: 8px 12px;
+}
+
+/* Window drag handle: the section's empty space (padding, gaps, encounter
+   label). Only while interactive — in click-through mode nothing should
+   capture the mouse. Clickable children must opt out, or Electron treats
+   clicks on them as drags. */
+body.interactive-mode .activity-section {
+  -webkit-app-region: drag;
+  cursor: grab;
+}
+
+.nav-btn,
+.activity-card,
+.encounter-wrap,
+.icon-picker {
+  -webkit-app-region: no-drag;
+}
+
+.picker-bar {
+  display: flex;
+  margin-bottom: 6px;
+}
+
+.activity-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.activity-picker-divider {
+  grid-column: 1 / -1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 2px 0;
+}
+
+.activity-card {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: rgba(255, 255, 255, 0.06) center / cover no-repeat;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: default;
+  padding: 0;
+  transition: border-color 0.15s;
+}
+
+.activity-picker.interactive .activity-card {
+  cursor: pointer;
+}
+
+.activity-picker.interactive .activity-card:hover {
+  border-color: #5865f2;
+}
+
+.activity-card-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.activity-card-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 12px 6px 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  text-align: left;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0));
+}
+
+/* Activity / encounter */
+
+.encounter-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.encounter-label {
+  flex: 1;
+  font-size: 10px;
+  color: #8e9297;
+  text-align: center;
+}
+
+.nav-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: #000;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.nav-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: #5865f2;
+}
+
+.nav-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.encounter-wrap {
+  position: relative;
+  width: 100%;
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.25);
+  /* Own stacking context, so a negative z-index on an area stays above the
+     wrap's background instead of dropping behind the whole panel. */
+  isolation: isolate;
+}
+
+.encounter-wrap img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.area {
+  position: absolute;
+  border: none;
+  padding: 0;
+  cursor: default;
+}
+
+/* Locked mode: draw icons beneath the encounter image, so its artwork
+   (through any transparent parts) covers them. */
+body:not(.interactive-mode) .area-icon {
+  z-index: -1;
+}
+
+.area-icon {
+  background: rgba(0, 0, 0, 0.15);
+  border: 2px dashed rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(12px, 3vw, 20px);
+  line-height: 1;
+}
+
+.area-toggle {
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px dotted rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+}
+
+#area-layer.interactive .area {
+  cursor: pointer;
+}
+
+#area-layer.interactive .area:hover {
+  border-color: #5865f2;
+  background: rgba(88, 101, 242, 0.15);
+}
+
+.area-overlay-svg {
+  position: absolute;
+  pointer-events: none;
+}
+
+.area-overlay-svg.hidden {
+  display: none;
+}
+
+.activity-hint {
+  font-size: 9px;
+  color: #4f545c;
+  text-align: center;
+  margin-top: 4px;
+}
+
+.icon-picker {
+  position: absolute;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 3px;
+  background: rgba(28, 31, 35, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 5px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+}
+
+.icon-picker.hidden {
+  display: none;
+}
+
+.icon-option {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px;
+}
+
+.icon-option:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: #5865f2;
+}
+
+.icon-clear {
+  color: #ed4245;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.icon-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* Disconnect */
+
+.panel-footer {
+  padding: 6px 12px 10px;
+}
+
+.disconnect-btn {
+  width: 100%;
+  background: rgba(237, 66, 69, 0.12);
+  border: 1px solid rgba(237, 66, 69, 0.2);
+  border-radius: 4px;
+  padding: 6px;
+  color: #ed4245;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.disconnect-btn:hover {
+  background: rgba(237, 66, 69, 0.22);
+}
+
+/* Reconnecting banner */
+.reconnect-banner {
+  font-size: 10px;
+  text-align: center;
+  padding: 4px 12px;
+  background: rgba(237, 66, 69, 0.15);
+  color: #ed4245;
+}
+
+.reconnect-banner.hidden {
+  display: none;
+}
