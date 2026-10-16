@@ -30,7 +30,7 @@
         <div class="hidden" id="activity-picker-view">
           <div class="picker-bar">
             <label class="guided-toggle hidden" title="Only you can interact with the dashboard and areas while this is on">
-              <input type="checkbox" class="guided-mode-checkbox"> Guided
+              <input type="checkbox" class="guided-mode-checkbox"><span class="guided-switch" aria-hidden="true"><span class="guided-knob">👑</span></span> Guided
             </label>
           </div>
           <div class="activity-picker" id="activity-picker"></div>
@@ -41,22 +41,30 @@
             <button class="nav-btn" id="back-to-activities-btn" disabled>Back</button>
             <button class="nav-btn" id="encounter-reset-btn" disabled>Reset</button>
             <label class="guided-toggle hidden" title="Only you can interact with the dashboard and areas while this is on">
-              <input type="checkbox" class="guided-mode-checkbox"> Guided
+              <input type="checkbox" class="guided-mode-checkbox"><span class="guided-switch" aria-hidden="true"><span class="guided-knob">👑</span></span> Guided
             </label>
             <span class="encounter-label" id="encounter-label"></span>
             <button class="nav-btn" id="encounter-prev-btn" disabled>‹</button>
             <button class="nav-btn" id="encounter-next-btn" disabled>›</button>
           </div>
 
-          <div class="encounter-wrap" id="encounter-wrap">
-            <img id="encounter-image" alt="">
-            <div id="area-layer"></div>
+          <div class="board">
+            <div class="draw-toolbar" id="draw-toolbar"></div>
+            <div class="encounter-wrap" id="encounter-wrap">
+              <img id="encounter-image" alt="">
+              <div id="area-layer"></div>
+              <canvas id="draw-canvas"></canvas>
+            </div>
           </div>
           <div class="activity-hint">F8 - hide/show | lock/unlock - F9</div>
         </div>
       </div>
 
       <div class="panel-footer">
+        <div class="admin-link-row hidden" id="admin-link-row">
+          <button class="admin-link-btn" id="copy-admin-link-btn" title="Copy a link that makes another device of yours (e.g. your phone) an admin of this room — share it with no one else">Copy Admin Link</button>
+          <button class="admin-link-btn" id="admin-qr-btn" title="Show the admin link as a QR code to scan with your phone">Admin QR</button>
+        </div>
         <button class="disconnect-btn" id="disconnect-btn">Leave Room</button>
       </div>
     </div>
@@ -64,6 +72,9 @@
 
   <div id="icon-picker" class="icon-picker hidden"></div>
 
+  <script src="../shared/drawing.js"></script>
+  <script src="../shared/vendor/qrcode-generator.js"></script>
+  <script src="../shared/admin-qr.js"></script>
   <script src="overlay.js"></script>
 </body>
 </html>

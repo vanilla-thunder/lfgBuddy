@@ -30,7 +30,18 @@ Rooms are identified by a shared code (e.g. `TEAM-ALPHA`). All clients in the sa
 
 ### Room admin & guided mode
 
-The first client to join a room becomes its **admin** (if the admin disconnects, admin rights pass to another remaining member, so a room can never get permanently stuck). The admin gets a **Guided mode** checkbox in their UI. While guided mode is on, only the admin can switch activities, navigate/reset encounters, or interact with clickable areas — everyone else is read-only. This is enforced server-side (the server tracks each room's `adminClientId`/`guidedMode` and rejects mutating events from non-admins), not just hidden in the UI, so a modified client can't bypass it.
+The first client to join a room becomes its **admin** (if all admins disconnect, admin rights pass to another remaining member, so a room can never get permanently stuck). Leaving only counts after a 15-second grace period: reloading the page or a short network drop rejoins with the same client ID and keeps admin rights — and a room you're alone in keeps its state instead of being wiped. Admins get a **Guided mode** checkbox in their UI. While guided mode is on, only admins can switch activities, navigate/reset encounters, draw, or interact with clickable areas — everyone else is read-only. This is enforced server-side (the server tracks each room's admins/`guidedMode` and rejects mutating events from non-admins), not just hidden in the UI, so a modified client can't bypass it.
+
+**Admin on several devices.** An admin can add their other devices as co-admins — e.g. draw on a phone while guided mode is on:
+
+- **Web:** the **Admin Link** button copies `<invite link>#admin=<token>`; open it on the other device (send it to yourself). **Admin QR** shows the same link as a QR code to scan with the phone instead. **Open in App** also carries the token for admins, so the admin's own overlay joins as admin.
+- **Electron overlay:** **Copy Admin Link** / **Admin QR** (above *Leave Room*, interactive mode) copy or show the same web link for the overlay's server.
+- The QR popup (`shared/admin-qr.js`) warns that anyone scanning it becomes admin, closes itself after 60 s, and in the overlay also when it's locked (F9) — the overlay is often on a streamed screen. It's drawn on a canvas with the vendored [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) 2.0.4 (`shared/vendor/`, MIT), so no external service ever sees the link.
+- `lfgbuddy://join/<code>?admin=<token>` links make the overlay join as admin.
+
+Each room has one random 128-bit admin token, created with the room and valid for its lifetime; anyone who has the link is an admin, so share it only with yourself. It travels in the URL fragment (never sent in HTTP requests, so it's not in server or proxy logs) and is removed from the address bar after joining.
+
+Client IDs work as credentials, so they're never sent to other clients: `state-sync` is sent per client and only tells each one whether *it* is an admin (`isAdmin`, plus `adminToken` for admins). Server logs show only the first 8 characters.
 
 ---
 
@@ -62,6 +73,10 @@ Health check: `GET /health` → `{ "ok": true, "rooms": <n> }`
 # from repo root
 docker compose up -d --build
 ```
+
+The image contains only the npm dependencies; `server/` and `shared/` are bind-mounted read-only into the container. Uploading new static files (`server/public/`, `shared/`, activity images) takes effect immediately. Changes to `server/index.js` or any `activity.js` need `docker compose restart` (they're loaded once at startup — and a restart drops all in-memory rooms). Changes to `server/package*.json` need `docker compose up -d --build`.
+
+> **Upload, then restart.** Whenever a change touches the socket protocol (new/changed events or payloads — typically `server/index.js` together with `shared/` or `server/public/`), upload all files and then run `docker compose restart`. Until the restart, browsers already get the new client code while the old server code is still running, and the mismatched events are silently dropped (e.g. drawings stop syncing). The same applies locally: restart `npm run server` after pulling such a change, and restart the Electron overlay (`npm run client`), since it doesn't reload `shared/` on its own.
 
 The server is reachable at `https://lfg.example.com` with TLS handled by Traefik (`letsencrypt` cert resolver).
 
@@ -130,6 +145,10 @@ A freshly created room has no activity selected. Until one is picked, the room s
 - **Area** — a clickable region on the encounter's picture, one of two interaction types:
   - `icon-select` — click opens a popup to assign an icon from a named **option list** to that spot (cycling by clicking again isn't implemented, only the popup). Which option list an area uses is per-area, and an activity can define multiple option lists (e.g. "roles" vs. "markers") shared across its encounters.
   - `toggle-svg` — click toggles a boolean; when on, a separate SVG graphic is overlaid on the encounter's picture. The clickable trigger and the revealed SVG have independent positions/sizes, so a small toggle button can reveal a graphic drawn anywhere else on the picture (e.g. a hazard-zone marker).
+- **Drawing board** — a tool sidebar next to every encounter: picture show/hide, pen, a color picker popup with six colors (white, red, green, blue, yellow, black), eraser and clear. Works with mouse, pen and touch. Drawings are shared with the room, kept per encounter, cleared by **Reset**, and respect guided mode; in the Electron overlay they need INTERACTIVE mode (F9). While the pen or eraser is selected, the areas underneath aren't clickable — click the active tool again to switch back. Hiding the picture turns the encounter into a blank board (it keeps the picture's size, so strokes stay in place).
+  - Strokes are vectors in board units (`0..10000` on both axes, relative to the picture), so they line up across clients of any size. Each stroke carries a client-generated line `id`; the eraser removes every line it touches as a whole, not just the pixels under it.
+  - Socket events: `draw-stroke` (relayed to the other members as `stroke-added`), `erase-stroke` (removes all strokes with that line `id`; relayed as `stroke-erased`), `clear-drawing` → `drawing-cleared`, `set-image-hidden` → `image-hidden-updated`. Each carries the `encounterId` it was made on and is dropped if the room has moved on.
+  - Limits (server-enforced, mirrored in `shared/drawing.js`): 1,000 points per stroke (longer lines are split client-side into strokes sharing one `id`), 20,000 points and 1,000 strokes per encounter.
 
 Activities are predefined server-side config, not user uploads — and each one is fully self-contained in its own directory:
 
@@ -177,6 +196,10 @@ The manifest is pushed to clients over the socket connection (`activities-manife
 lfgBuddy/
 ├── main.js               # Electron main process — window, hotkeys
 ├── preload.js            # contextBridge: exposes Socket.io API to renderer
+├── shared/               # Client code used by both clients (served at /shared/)
+│   ├── drawing.js        # Drawing board: toolbar, canvas, pointer input
+│   ├── admin-qr.js       # Admin link QR popup
+│   └── vendor/           # Third-party code, vendored unmodified (qrcode-generator)
 ├── client/               # Electron renderer
 │   ├── index.html
 │   ├── overlay.js
@@ -194,7 +217,7 @@ lfgBuddy/
 └── docker-compose.yml    # Production deployment with Traefik labels
 ```
 
-> **Duplicated client logic:** `client/overlay.js` (Electron) and `server/public/app.js` (web) are two separate, hand-kept-in-sync copies of the same rendering/interaction logic — there's no shared module between them. Any change to how encounters/areas are rendered or handled (e.g. area positioning, icon picker, socket event handling) must be made in **both** files, or the two clients will drift out of sync.
+> **Duplicated client logic:** `client/overlay.js` (Electron) and `server/public/app.js` (web) are two separate, hand-kept-in-sync copies of the same rendering/interaction logic. Only `shared/` is common to both (the Electron overlay loads it from `../shared/`, the web client from `/shared/`) — prefer putting new client code there. Any change to how encounters/areas are rendered or handled (e.g. area positioning, icon picker, socket event handling) must be made in **both** files, or the two clients will drift out of sync.
 
 ---
 

@@ -8,7 +8,7 @@ const clientId = localStorage.getItem('lfg_client_id') || (() => {
 })();
 
 const serverUrl = window.lfg.serverUrl.replace(/\/+$/, '');
-let state = { activityId: null, encounterIndex: 0, encounters: {}, adminClientId: null, guidedMode: false, overlayVisible: true };
+let state = { activityId: null, encounterIndex: 0, encounters: {}, isAdmin: false, adminToken: null, guidedMode: false, overlayVisible: true };
 let manifest = { activities: [] };
 let isInteractive = false;
 
@@ -31,10 +31,25 @@ const encounterImage    = document.getElementById('encounter-image');
 const areaLayer         = document.getElementById('area-layer');
 const iconPicker        = document.getElementById('icon-picker');
 const disconnectBtn     = document.getElementById('disconnect-btn');
+const adminLinkRow      = document.getElementById('admin-link-row');
+const copyAdminLinkBtn  = document.getElementById('copy-admin-link-btn');
+const adminQrBtn        = document.getElementById('admin-qr-btn');
 const reconnectBanner   = document.getElementById('reconnect-banner');
 // Two copies: one above the activity picker, one in the encounter nav row.
 const guidedToggles         = document.querySelectorAll('.guided-toggle');
 const guidedModeCheckboxes  = document.querySelectorAll('.guided-mode-checkbox');
+
+const drawingBoard = createDrawingBoard({
+  wrap: document.getElementById('encounter-wrap'),
+  canvas: document.getElementById('draw-canvas'),
+  toolbar: document.getElementById('draw-toolbar'),
+  getCurrent() {
+    const encounter = getCurrentEncounter();
+    return encounter ? { encounterId: encounter.id, encounterState: ensureEncounterState(encounter.id) } : null;
+  },
+  canDraw: canInteract,
+  emit: (event, data) => window.lfg.emit(event, data),
+});
 
 // ── Restore saved settings ────────────────────────────────────────────────────
 
@@ -63,16 +78,28 @@ function getCurrentEncounter() {
 }
 
 function getEncounterState(encounterId) {
-  return state.encounters[encounterId] ?? { icons: {}, svg: [] };
+  return state.encounters[encounterId] ?? emptyEncounterState();
 }
 
-// The room admin is whoever the server currently designates via
-// state.adminClientId (first joiner, or a reassigned member if the admin
-// disconnected) — never decided locally. Guided mode, once the admin turns
+function emptyEncounterState() {
+  return { icons: {}, svg: [], strokes: [], imageHidden: false };
+}
+
+// Like getEncounterState, but stores the fresh state for an untouched
+// encounter, so updates applied to it (e.g. own strokes) persist.
+function ensureEncounterState(encounterId) {
+  state.encounters[encounterId] ??= emptyEncounterState();
+  return state.encounters[encounterId];
+}
+
+// Whether this client is a room admin is decided by the server (first
+// joiner, a member promoted when all admins left, or a device that joined
+// via an admin link) and sent only to this client — never decided locally,
+// and no client ever learns another's ID. Guided mode, once an admin turns
 // it on, restricts everyone else to read-only; this only gates the UI, the
 // server enforces it authoritatively regardless of what a client sends.
 function isAdmin() {
-  return state.adminClientId === clientId;
+  return state.isAdmin === true;
 }
 
 function isLocked() {
@@ -89,9 +116,12 @@ function canInteract() {
 function renderPermissions() {
   for (const toggle of guidedToggles) toggle.classList.toggle('hidden', !isAdmin());
   for (const checkbox of guidedModeCheckboxes) checkbox.checked = state.guidedMode;
+  adminLinkRow.classList.toggle('hidden', !isAdmin());
+  if (!isAdmin()) hideAdminQr();
   areaLayer.classList.toggle('interactive', canInteract());
   activityPicker.classList.toggle('interactive', canInteract());
   backToActivitiesBtn.disabled = !canInteract();
+  drawingBoard.updateControls();
 }
 
 // Shown instead of the encounter view when the room has no activity chosen
@@ -219,6 +249,7 @@ function renderEncounter() {
   areaLayer.innerHTML = '';
   if (!encounter) {
     encounterImage.removeAttribute('src');
+    drawingBoard.render();
     return;
   }
 
@@ -256,13 +287,13 @@ function renderEncounter() {
       areaLayer.appendChild(overlay);
     }
   }
+  drawingBoard.render();
 }
 
 function applyIconUpdate({ encounterId, areaId, iconId }) {
-  const encounterState = state.encounters[encounterId] ?? { icons: {}, svg: [] };
+  const encounterState = ensureEncounterState(encounterId);
   if (iconId === null) delete encounterState.icons[areaId];
   else encounterState.icons[areaId] = iconId;
-  state.encounters[encounterId] = encounterState;
 
   if (getCurrentEncounter()?.id === encounterId) {
     const el = findAreaEl(areaId);
@@ -271,15 +302,41 @@ function applyIconUpdate({ encounterId, areaId, iconId }) {
 }
 
 function applySvgUpdate({ encounterId, areaId, visible }) {
-  const encounterState = state.encounters[encounterId] ?? { icons: {}, svg: [] };
+  const encounterState = ensureEncounterState(encounterId);
   encounterState.svg = encounterState.svg.filter((id) => id !== areaId);
   if (visible) encounterState.svg.push(areaId);
-  state.encounters[encounterId] = encounterState;
 
   if (getCurrentEncounter()?.id === encounterId) {
     const overlay = areaLayer.querySelector(`[data-overlay-for="${CSS.escape(areaId)}"]`);
     if (overlay) overlay.classList.toggle('hidden', !visible);
   }
+}
+
+// ── Drawing board (shared/drawing.js) ────────────────────────────────────────
+
+function applyStrokeAdded({ encounterId, stroke }) {
+  ensureEncounterState(encounterId).strokes.push(stroke);
+  if (getCurrentEncounter()?.id === encounterId) drawingBoard.appendStroke(stroke);
+}
+
+function applyStrokeErased({ encounterId, strokeId }) {
+  const encounterState = ensureEncounterState(encounterId);
+  encounterState.strokes = encounterState.strokes.filter((stroke) => stroke.id !== strokeId);
+  if (getCurrentEncounter()?.id === encounterId) drawingBoard.render();
+}
+
+function applyDrawingCleared({ encounterId }) {
+  ensureEncounterState(encounterId).strokes = [];
+  if (getCurrentEncounter()?.id === encounterId) drawingBoard.render();
+}
+
+function applyImageHidden({ encounterId, hidden }) {
+  ensureEncounterState(encounterId).imageHidden = hidden;
+  if (getCurrentEncounter()?.id !== encounterId) return;
+  // The areas are hidden along with the picture — don't leave an icon
+  // picker open for one of them.
+  if (hidden) iconPicker.classList.add('hidden');
+  drawingBoard.render();
 }
 
 // ── Icon picker popup ────────────────────────────────────────────────────────
@@ -352,7 +409,8 @@ document.addEventListener('click', (e) => {
 
 // ── Connect flow ──────────────────────────────────────────────────────────────
 
-function connectToRoom() {
+// adminToken: from an lfgbuddy:// admin link (validated in main.js).
+function connectToRoom(adminToken = null) {
   const code = roomCodeInput.value.trim().toUpperCase();
 
   if (!code) {
@@ -365,7 +423,7 @@ function connectToRoom() {
   setStatus('Connecting…', 'info');
   connectBtn.disabled = true;
 
-  window.lfg.connect(code, clientId);
+  window.lfg.connect(code, clientId, adminToken);
 }
 
 function leaveRoom() {
@@ -373,20 +431,44 @@ function leaveRoom() {
   overlayScreen.classList.add('hidden');
   setupScreen.classList.remove('hidden');
   connectBtn.disabled = false;
-  state = { activityId: null, encounterIndex: 0, encounters: {}, adminClientId: null, guidedMode: false, overlayVisible: true };
+  state = { activityId: null, encounterIndex: 0, encounters: {}, isAdmin: false, adminToken: null, guidedMode: false, overlayVisible: true };
   iconPicker.classList.add('hidden');
+  hideAdminQr();
   setStatus('');
 }
 
-connectBtn.addEventListener('click', connectToRoom);
+connectBtn.addEventListener('click', () => connectToRoom());
 disconnectBtn.addEventListener('click', leaveRoom);
 
-// lfgbuddy://join/<code> link (validated in main.js) — joins on the
-// mode's fixed server, leaving the current room first if already in one.
-window.lfg.onJoinRoom((code) => {
+// lfgbuddy://join/<code>[?admin=<token>] link (validated in main.js) —
+// joins on the mode's fixed server, leaving the current room first if
+// already in one.
+window.lfg.onJoinRoom((code, adminToken) => {
   if (!overlayScreen.classList.contains('hidden')) leaveRoom();
   roomCodeInput.value = code;
-  connectToRoom();
+  connectToRoom(adminToken);
+});
+
+// Admin link for another device of this admin (e.g. a phone): the web
+// invite link on this mode's server plus the room's admin token. The token
+// goes in the fragment, so it never shows up in HTTP requests or logs.
+function adminLink() {
+  const code = localStorage.getItem('lfg_room');
+  if (!code || !state.adminToken) return null;
+  return `${serverUrl}/${encodeURIComponent(code.toLowerCase())}#admin=${state.adminToken}`;
+}
+
+copyAdminLinkBtn.addEventListener('click', () => {
+  const link = adminLink();
+  if (!link) return;
+  window.lfg.copyText(link);
+  copyAdminLinkBtn.textContent = 'Copied!';
+  setTimeout(() => { copyAdminLinkBtn.textContent = 'Copy Admin Link'; }, 1500);
+});
+
+adminQrBtn.addEventListener('click', () => {
+  const link = adminLink();
+  if (link) showAdminQr(link);
 });
 
 // ── Socket events ─────────────────────────────────────────────────────────────
@@ -429,12 +511,21 @@ window.lfg.on('state-sync', (newState) => {
 
 window.lfg.on('icon-updated', (payload) => applyIconUpdate(payload));
 window.lfg.on('svg-updated', (payload) => applySvgUpdate(payload));
+window.lfg.on('stroke-added', (payload) => applyStrokeAdded(payload));
+window.lfg.on('stroke-erased', (payload) => applyStrokeErased(payload));
+window.lfg.on('drawing-cleared', (payload) => applyDrawingCleared(payload));
+window.lfg.on('image-hidden-updated', (payload) => applyImageHidden(payload));
 
 // ── Hotkey feedback from main process ─────────────────────────────────────────
 
 window.lfg.onToggleInteractive((interactive) => {
   isInteractive = interactive;
-  if (!interactive) iconPicker.classList.add('hidden');
+  // Locked = click-through: the QR couldn't be closed by clicking, and the
+  // overlay is most likely on screen over the game (and maybe on stream).
+  if (!interactive) {
+    iconPicker.classList.add('hidden');
+    hideAdminQr();
+  }
   renderPermissions();
   renderEncounterNav();
   document.body.classList.toggle('interactive-mode', interactive);

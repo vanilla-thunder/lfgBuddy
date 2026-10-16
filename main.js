@@ -5,9 +5,9 @@ const fs = require('fs');
 const path = require('path');
 
 let mainWindow;
-// Room code from an lfgbuddy:// link that arrived before the page could
-// receive it (cold start); delivered on did-finish-load.
-let pendingJoinCode = null;
+// { code, adminToken } from an lfgbuddy:// link that arrived before the
+// page could receive it (cold start); delivered on did-finish-load.
+let pendingJoin = null;
 // Starts interactive so the user can connect/pick an activity right away;
 // F9 switches to click-through.
 let isInteractive = true;
@@ -30,12 +30,16 @@ function applyInteractive() {
   mainWindow.webContents.send('toggle-interactive', isInteractive);
 }
 
-// lfgbuddy://join/<room-code> — same code rules as the web invite links
-// (server/public/app.js). Only the room code is taken from the link, never a
-// server URL: any website can fire this protocol, and letting it pick the
-// server would let it redirect the overlay to an attacker-controlled host.
+// lfgbuddy://join/<room-code>[?admin=<token>] — same code rules as the web
+// invite links (server/public/app.js). Only the room code (and an optional
+// admin token for that room) is taken from the link, never a server URL: any
+// website can fire this protocol, and letting it pick the server would let
+// it redirect the overlay to an attacker-controlled host. A forged admin
+// token is harmless — at worst it's rejected, or makes you admin of a room
+// the link's author already controls.
 const PROTOCOL = 'lfgbuddy';
 const ROOM_CODE_RE = /^[A-Za-z0-9_-]{1,32}$/;
+const ADMIN_TOKEN_RE = /^[0-9a-f]{32}$/;
 
 function parseJoinLink(raw) {
   let url;
@@ -52,24 +56,27 @@ function parseJoinLink(raw) {
   } catch {
     return null;
   }
-  return ROOM_CODE_RE.test(code) ? code.toUpperCase() : null;
+  if (!ROOM_CODE_RE.test(code)) return null;
+
+  const adminToken = url.searchParams.get('admin');
+  return { code: code.toUpperCase(), adminToken: ADMIN_TOKEN_RE.test(adminToken ?? '') ? adminToken : null };
 }
 
 // Windows passes the link as a plain argv entry (cold start and
 // second-instance alike); ignore everything else in argv.
-function findJoinCode(argv) {
+function findJoinLink(argv) {
   for (const arg of argv) {
     if (arg.toLowerCase().startsWith(`${PROTOCOL}://`)) return parseJoinLink(arg);
   }
   return null;
 }
 
-function joinRoom(code) {
+function joinRoom(join) {
   if (!mainWindow || mainWindow.webContents.isLoading()) {
-    pendingJoinCode = code;
+    pendingJoin = join;
     return;
   }
-  mainWindow.webContents.send('join-room', code);
+  mainWindow.webContents.send('join-room', join);
   if (!mainWindow.isVisible()) mainWindow.showInactive();
 }
 
@@ -150,9 +157,9 @@ function createWindow() {
   // the page (and its IPC listener) is loaded — also covers reloads.
   mainWindow.webContents.on('did-finish-load', () => {
     applyInteractive();
-    if (pendingJoinCode) {
-      mainWindow.webContents.send('join-room', pendingJoinCode);
-      pendingJoinCode = null;
+    if (pendingJoin) {
+      mainWindow.webContents.send('join-room', pendingJoin);
+      pendingJoin = null;
     }
   });
 
@@ -170,8 +177,8 @@ const gotInstanceLock = app.requestSingleInstanceLock();
 if (!gotInstanceLock) app.quit();
 
 app.on('second-instance', (_event, argv) => {
-  const code = findJoinCode(argv);
-  if (code) joinRoom(code);
+  const join = findJoinLink(argv);
+  if (join) joinRoom(join);
 });
 
 // When run unpackaged (`electron .`) Windows must launch electron.exe with
@@ -182,7 +189,7 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient(PROTOCOL);
 }
 
-pendingJoinCode = findJoinCode(process.argv);
+pendingJoin = findJoinLink(process.argv);
 
 app.whenReady().then(() => {
   // app.quit() is async — don't open a window in the instance that's exiting.

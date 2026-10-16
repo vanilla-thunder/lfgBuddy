@@ -8,7 +8,7 @@ const clientId = localStorage.getItem('lfg_client_id') || (() => {
 })();
 
 let currentRoomId = null;
-let state = { activityId: null, encounterIndex: 0, encounters: {}, adminClientId: null, guidedMode: false, overlayVisible: true };
+let state = { activityId: null, encounterIndex: 0, encounters: {}, isAdmin: false, adminToken: null, guidedMode: false, overlayVisible: true };
 let manifest = { activities: [] };
 let socket = null;
 
@@ -32,11 +32,25 @@ const areaLayer        = document.getElementById('area-layer');
 const iconPicker       = document.getElementById('icon-picker');
 const disconnectBtn    = document.getElementById('disconnect-btn');
 const copyLinkBtn      = document.getElementById('copy-link-btn');
+const copyAdminLinkBtn = document.getElementById('copy-admin-link-btn');
+const adminQrBtn       = document.getElementById('admin-qr-btn');
 const openInAppLink    = document.getElementById('open-in-app-link');
 const reconnectBanner  = document.getElementById('reconnect-banner');
 const guidedToggle       = document.getElementById('guided-toggle');
 const guidedModeCheckbox = document.getElementById('guided-mode-checkbox');
 const overlayVisibilityBtn = document.getElementById('overlay-visibility-btn');
+
+const drawingBoard = createDrawingBoard({
+  wrap: document.getElementById('encounter-wrap'),
+  canvas: document.getElementById('draw-canvas'),
+  toolbar: document.getElementById('draw-toolbar'),
+  getCurrent() {
+    const encounter = getCurrentEncounter();
+    return encounter ? { encounterId: encounter.id, encounterState: ensureEncounterState(encounter.id) } : null;
+  },
+  canDraw: () => Boolean(socket?.connected) && canInteract(),
+  emit: (event, data) => socket?.connected && socket.emit(event, data),
+});
 
 // ── Restore saved values ──────────────────────────────────────────────────────
 
@@ -52,6 +66,14 @@ if (ROOM_CODE_PATH_RE.test(pathCode)) {
   roomCodeInput.value = pathCode.toUpperCase();
 }
 
+// An admin link (<invite link>#admin=<token>) makes the opening device a
+// room admin too. The token sits in the fragment, so it never reaches the
+// server in an HTTP request (or its access logs) — only in the socket join.
+// It's dropped from the address bar by the first state-sync's replaceState.
+const ADMIN_TOKEN_RE = /^[0-9a-f]{32}$/;
+let pendingAdminToken = new URLSearchParams(location.hash.slice(1)).get('admin');
+if (!ADMIN_TOKEN_RE.test(pendingAdminToken ?? '')) pendingAdminToken = null;
+
 function invitePathFor(code) {
   return `/${encodeURIComponent(code.toLowerCase())}`;
 }
@@ -60,10 +82,16 @@ function inviteLinkFor(code) {
   return `${location.origin}${invitePathFor(code)}`;
 }
 
+function adminLinkFor(code, adminToken) {
+  return `${inviteLinkFor(code)}#admin=${adminToken}`;
+}
+
 // Deep link handled by the Electron overlay (see parseJoinLink in main.js),
-// which re-validates the code — it only ever carries the room, not a server.
-function appLinkFor(code) {
-  return `lfgbuddy://join${invitePathFor(code)}`;
+// which re-validates it — it only ever carries the room (plus, for admins,
+// the admin token so their own overlay becomes admin too), never a server.
+function appLinkFor(code, adminToken) {
+  const link = `lfgbuddy://join${invitePathFor(code)}`;
+  return adminToken ? `${link}?admin=${adminToken}` : link;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -84,16 +112,28 @@ function getCurrentEncounter() {
 }
 
 function getEncounterState(encounterId) {
-  return state.encounters[encounterId] ?? { icons: {}, svg: [] };
+  return state.encounters[encounterId] ?? emptyEncounterState();
 }
 
-// The room admin is whoever the server currently designates via
-// state.adminClientId (first joiner, or a reassigned member if the admin
-// disconnected) — never decided locally. Guided mode, once the admin turns
+function emptyEncounterState() {
+  return { icons: {}, svg: [], strokes: [], imageHidden: false };
+}
+
+// Like getEncounterState, but stores the fresh state for an untouched
+// encounter, so updates applied to it (e.g. own strokes) persist.
+function ensureEncounterState(encounterId) {
+  state.encounters[encounterId] ??= emptyEncounterState();
+  return state.encounters[encounterId];
+}
+
+// Whether this client is a room admin is decided by the server (first
+// joiner, a member promoted when all admins left, or a device that joined
+// via an admin link) and sent only to this client — never decided locally,
+// and no client ever learns another's ID. Guided mode, once an admin turns
 // it on, restricts everyone else to read-only; this only gates the UI, the
 // server enforces it authoritatively regardless of what a client sends.
 function isAdmin() {
-  return state.adminClientId === clientId;
+  return state.isAdmin === true;
 }
 
 function isLocked() {
@@ -108,10 +148,14 @@ function renderPermissions() {
   guidedToggle.classList.toggle('hidden', !isAdmin());
   guidedModeCheckbox.checked = state.guidedMode;
   overlayVisibilityBtn.classList.toggle('hidden', !isAdmin());
+  copyAdminLinkBtn.classList.toggle('hidden', !isAdmin());
+  adminQrBtn.classList.toggle('hidden', !isAdmin());
+  if (!isAdmin()) hideAdminQr();
   overlayVisibilityBtn.textContent = state.overlayVisible === false ? 'Show Overlay' : 'Hide Overlay';
   areaLayer.classList.toggle('interactive', canInteract());
   activityPicker.classList.toggle('interactive', canInteract());
   backToActivitiesBtn.disabled = !canInteract();
+  drawingBoard.updateControls();
 }
 
 // Shown instead of the encounter view when the room has no activity chosen
@@ -216,6 +260,7 @@ function renderEncounter() {
   areaLayer.innerHTML = '';
   if (!encounter) {
     encounterImage.removeAttribute('src');
+    drawingBoard.render();
     return;
   }
 
@@ -254,6 +299,7 @@ function renderEncounter() {
       areaLayer.appendChild(overlay);
     }
   }
+  drawingBoard.render();
 }
 
 // Area coordinates are absolute px offsets from the encounter image's edges.
@@ -280,10 +326,9 @@ function positionEl(el, box) {
 }
 
 function applyIconUpdate({ encounterId, areaId, iconId }) {
-  const encounterState = state.encounters[encounterId] ?? { icons: {}, svg: [] };
+  const encounterState = ensureEncounterState(encounterId);
   if (iconId === null) delete encounterState.icons[areaId];
   else encounterState.icons[areaId] = iconId;
-  state.encounters[encounterId] = encounterState;
 
   if (getCurrentEncounter()?.id === encounterId) {
     const el = findAreaEl(areaId);
@@ -292,15 +337,41 @@ function applyIconUpdate({ encounterId, areaId, iconId }) {
 }
 
 function applySvgUpdate({ encounterId, areaId, visible }) {
-  const encounterState = state.encounters[encounterId] ?? { icons: {}, svg: [] };
+  const encounterState = ensureEncounterState(encounterId);
   encounterState.svg = encounterState.svg.filter((id) => id !== areaId);
   if (visible) encounterState.svg.push(areaId);
-  state.encounters[encounterId] = encounterState;
 
   if (getCurrentEncounter()?.id === encounterId) {
     const overlay = areaLayer.querySelector(`[data-overlay-for="${CSS.escape(areaId)}"]`);
     if (overlay) overlay.classList.toggle('hidden', !visible);
   }
+}
+
+// ── Drawing board (shared/drawing.js) ────────────────────────────────────────
+
+function applyStrokeAdded({ encounterId, stroke }) {
+  ensureEncounterState(encounterId).strokes.push(stroke);
+  if (getCurrentEncounter()?.id === encounterId) drawingBoard.appendStroke(stroke);
+}
+
+function applyStrokeErased({ encounterId, strokeId }) {
+  const encounterState = ensureEncounterState(encounterId);
+  encounterState.strokes = encounterState.strokes.filter((stroke) => stroke.id !== strokeId);
+  if (getCurrentEncounter()?.id === encounterId) drawingBoard.render();
+}
+
+function applyDrawingCleared({ encounterId }) {
+  ensureEncounterState(encounterId).strokes = [];
+  if (getCurrentEncounter()?.id === encounterId) drawingBoard.render();
+}
+
+function applyImageHidden({ encounterId, hidden }) {
+  ensureEncounterState(encounterId).imageHidden = hidden;
+  if (getCurrentEncounter()?.id !== encounterId) return;
+  // The areas are hidden along with the picture — don't leave an icon
+  // picker open for one of them.
+  if (hidden) iconPicker.classList.add('hidden');
+  drawingBoard.render();
 }
 
 // ── Icon picker popup ────────────────────────────────────────────────────────
@@ -379,7 +450,7 @@ function connectToRoom(code) {
   socket = io({ reconnection: true, reconnectionDelay: 2000 });
 
   socket.on('connect', () => {
-    socket.emit('join', { roomId: code, clientId });
+    socket.emit('join', { roomId: code, clientId, adminToken: pendingAdminToken });
     reconnectBanner.classList.add('hidden');
   });
 
@@ -393,6 +464,8 @@ function connectToRoom(code) {
 
   socket.on('state-sync', (newState) => {
     state = newState;
+    // Used once: from here on the server knows this client as an admin.
+    pendingAdminToken = null;
     setupScreen.classList.add('hidden');
     roomScreen.classList.remove('hidden');
     roomDisplay.textContent = currentRoomId;
@@ -402,14 +475,19 @@ function connectToRoom(code) {
     renderEncounter();
     setStatus('');
     history.replaceState(null, '', invitePathFor(currentRoomId));
-    openInAppLink.href = appLinkFor(currentRoomId);
+    openInAppLink.href = appLinkFor(currentRoomId, state.adminToken);
   });
 
   socket.on('icon-updated', (payload) => applyIconUpdate(payload));
   socket.on('svg-updated', (payload) => applySvgUpdate(payload));
+  socket.on('stroke-added', (payload) => applyStrokeAdded(payload));
+  socket.on('stroke-erased', (payload) => applyStrokeErased(payload));
+  socket.on('drawing-cleared', (payload) => applyDrawingCleared(payload));
+  socket.on('image-hidden-updated', (payload) => applyImageHidden(payload));
 
   socket.on('disconnect', () => {
     reconnectBanner.classList.remove('hidden');
+    drawingBoard.updateControls();
   });
 
   socket.on('connect_error', () => {
@@ -445,26 +523,38 @@ disconnectBtn.addEventListener('click', () => {
   roomScreen.classList.add('hidden');
   setupScreen.classList.remove('hidden');
   connectBtn.disabled = false;
-  state = { activityId: null, encounterIndex: 0, encounters: {}, adminClientId: null, guidedMode: false, overlayVisible: true };
+  state = { activityId: null, encounterIndex: 0, encounters: {}, isAdmin: false, adminToken: null, guidedMode: false, overlayVisible: true };
   iconPicker.classList.add('hidden');
+  hideAdminQr();
   setStatus('');
   history.replaceState(null, '', '/');
 });
 
 // ── Copy invite link ──────────────────────────────────────────────────────────
 
-copyLinkBtn.addEventListener('click', async () => {
-  if (!currentRoomId) return;
-  const link = inviteLinkFor(currentRoomId);
-  const original = copyLinkBtn.textContent;
+async function copyLink(btn, link, promptText) {
+  const original = btn.textContent;
   try {
     await navigator.clipboard.writeText(link);
-    copyLinkBtn.textContent = 'Copied!';
+    btn.textContent = 'Copied!';
   } catch {
-    window.prompt('Copy this invite link:', link);
+    window.prompt(promptText, link);
   } finally {
-    setTimeout(() => { copyLinkBtn.textContent = original; }, 1500);
+    setTimeout(() => { btn.textContent = original; }, 1500);
   }
+}
+
+copyLinkBtn.addEventListener('click', () => {
+  if (currentRoomId) copyLink(copyLinkBtn, inviteLinkFor(currentRoomId), 'Copy this invite link:');
+});
+
+copyAdminLinkBtn.addEventListener('click', () => {
+  if (!currentRoomId || !state.adminToken) return;
+  copyLink(copyAdminLinkBtn, adminLinkFor(currentRoomId, state.adminToken), 'Copy this admin link (keep it private):');
+});
+
+adminQrBtn.addEventListener('click', () => {
+  if (currentRoomId && state.adminToken) showAdminQr(adminLinkFor(currentRoomId, state.adminToken));
 });
 
 // ── Guided mode ───────────────────────────────────────────────────────────────

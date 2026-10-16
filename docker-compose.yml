@@ -2,6 +2,13 @@ services:
 
   lfg-buddy:
     build: ./server
+    # Code is mounted, not copied (see server/Dockerfile): static files —
+    # public/, shared/, activity images — are live as soon as they're
+    # uploaded; changes to server/index.js or activities/*.js need a
+    # `docker compose restart`. Read-only: the server never writes here.
+    volumes:
+      - ./server:/app/server:ro
+      - ./shared:/app/shared:ro
     restart: unless-stopped
     environment:
       - PORT=3000

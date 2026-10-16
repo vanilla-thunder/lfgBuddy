@@ -1,6 +1,6 @@
 'use strict';
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { clipboard, contextBridge, ipcRenderer } = require('electron');
 const { io } = require('socket.io-client');
 
 const SERVER_ARG = '--lfg-server=';
@@ -20,7 +20,7 @@ function attachListeners(sock) {
 contextBridge.exposeInMainWorld('lfg', {
   serverUrl,
 
-  connect(roomId, clientId) {
+  connect(roomId, clientId, adminToken = null) {
     if (socket) {
       socket.removeAllListeners();
       socket.disconnect();
@@ -33,7 +33,7 @@ contextBridge.exposeInMainWorld('lfg', {
     });
 
     socket.on('connect', () => {
-      socket.emit('join', { roomId, clientId });
+      socket.emit('join', { roomId, clientId, adminToken });
     });
 
     attachListeners(socket);
@@ -62,7 +62,11 @@ contextBridge.exposeInMainWorld('lfg', {
   },
 
   onJoinRoom(callback) {
-    ipcRenderer.on('join-room', (_evt, code) => callback(String(code)));
+    ipcRenderer.on('join-room', (_evt, join) => callback(String(join.code), join.adminToken ?? null));
+  },
+
+  copyText(text) {
+    clipboard.writeText(String(text));
   },
 
   setOverlayVisible(visible) {
