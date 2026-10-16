@@ -35,6 +35,7 @@ mountStaticRoutes(app);
 //   }>,
 //   members: Map<clientId, number>,  // open sockets per client
 //   leaveTimers: Map<clientId, Timeout>,
+//   names: Map<clientId, string>,     // display names, sanitized
 //   adminClientIds: Set<clientId>,
 //   adminToken: string,  // secret in admin links; joining with it grants admin
 //   guidedMode: boolean,
@@ -42,8 +43,8 @@ mountStaticRoutes(app);
 // }
 // `encounters` only holds entries for encounters a room has actually
 // touched — a missing entry means that encounter is still blank. `members`
-// tracks presence only (for room lifecycle); nothing about a member is
-// shown in the UI. A client whose last socket closes stays a member for
+// tracks presence (for room lifecycle); the member list clients see (see
+// serializeMembers) carries names and flags only, never client IDs. A client whose last socket closes stays a member for
 // RECONNECT_GRACE_MS (`leaveTimers`), so a page reload or a brief network
 // drop keeps its admin rights and doesn't wipe a room it's alone in.
 //
@@ -56,6 +57,17 @@ mountStaticRoutes(app);
 // an admin) and only logged truncated.
 const rooms = new Map();
 const RECONNECT_GRACE_MS = 15000;
+const MAX_NAME_LENGTH = 24;
+const DEFAULT_NAME = 'Guest';
+
+// Display names are free text from the client: drop control and invisible
+// format characters (incl. bidi overrides, which could disguise a name),
+// collapse whitespace, and cap the length in characters, not UTF-16 units.
+// Clients render names as text only, never as HTML.
+function sanitizeName(raw) {
+  const name = String(raw ?? '').normalize('NFC').replace(/\s+/g, ' ').replace(/\p{C}/gu, '').trim();
+  return [...name].slice(0, MAX_NAME_LENGTH).join('').trim() || DEFAULT_NAME;
+}
 
 function emptyEncounterState() {
   return { icons: new Map(), svg: new Set(), strokes: [], pointCount: 0, imageHidden: false };
@@ -93,6 +105,7 @@ function getOrCreateRoom(roomId) {
       encounters: new Map(),
       members: new Map(),
       leaveTimers: new Map(),
+      names: new Map(),
       adminClientIds: new Set(),
       adminToken: crypto.randomBytes(16).toString('hex'),
       guidedMode: false,
@@ -154,13 +167,33 @@ function serializeRoom(room, clientId) {
   };
 }
 
-// state-sync differs per client (see serializeRoom), so it's sent socket by
-// socket instead of as one room broadcast.
-function broadcastState(roomId, room) {
+// Member list for one receiving client, in join order. `self` marks the
+// receiver's own entry; `online` is false during a member's reconnect grace
+// period.
+function serializeMembers(room, clientId) {
+  return [...room.members].map(([memberId, sockets]) => ({
+    name: room.names.get(memberId) ?? DEFAULT_NAME,
+    isAdmin: isAdmin(room, memberId),
+    online: sockets > 0,
+    self: memberId === clientId,
+  }));
+}
+
+function forEachRoomSocket(roomId, fn) {
   for (const socketId of io.sockets.adapter.rooms.get(roomId) ?? []) {
     const socket = io.sockets.sockets.get(socketId);
-    if (socket) socket.emit('state-sync', serializeRoom(room, socket.data.clientId));
+    if (socket) fn(socket);
   }
+}
+
+// state-sync and the member list differ per client (isAdmin/adminToken,
+// self), so they're sent socket by socket instead of as one room broadcast.
+function broadcastState(roomId, room) {
+  forEachRoomSocket(roomId, (socket) => socket.emit('state-sync', serializeRoom(room, socket.data.clientId)));
+}
+
+function broadcastMembers(roomId, room) {
+  forEachRoomSocket(roomId, (socket) => socket.emit('members', { members: serializeMembers(room, socket.data.clientId) }));
 }
 
 io.on('connection', (socket) => {
@@ -171,7 +204,7 @@ io.on('connection', (socket) => {
 
   // One join per socket — clients reconnect (and switch rooms) with a new
   // socket, and a second join would unbalance the member's socket count.
-  socket.on('join', ({ roomId, clientId, adminToken }) => {
+  socket.on('join', ({ roomId, clientId, adminToken, name }) => {
     if (!roomId || !clientId || currentRoomId) return;
 
     currentRoomId = String(roomId).toUpperCase().slice(0, 32);
@@ -183,11 +216,13 @@ io.on('connection', (socket) => {
     clearTimeout(room.leaveTimers.get(currentClientId));
     room.leaveTimers.delete(currentClientId);
     room.members.set(currentClientId, (room.members.get(currentClientId) ?? 0) + 1);
+    room.names.set(currentClientId, sanitizeName(name));
     if (room.adminClientIds.size === 0 || isValidAdminToken(room, adminToken)) {
       room.adminClientIds.add(currentClientId);
     }
 
     socket.emit('state-sync', serializeRoom(room, currentClientId));
+    broadcastMembers(currentRoomId, room);
 
     console.log(`[${currentRoomId}] ${logId(currentClientId)} joined (${room.members.size} members)`);
   });
@@ -362,6 +397,7 @@ io.on('connection', (socket) => {
     const roomId = currentRoomId;
     const clientId = currentClientId;
     room.leaveTimers.set(clientId, setTimeout(() => removeMember(roomId, room, clientId), RECONNECT_GRACE_MS));
+    broadcastMembers(roomId, room); // shown as offline until it rejoins or the grace period ends
   });
 });
 
@@ -371,6 +407,7 @@ function removeMember(roomId, room, clientId) {
   room.leaveTimers.delete(clientId);
   room.members.delete(clientId);
   room.adminClientIds.delete(clientId);
+  room.names.delete(clientId);
   console.log(`[${roomId}] ${logId(clientId)} left (${room.members.size} members)`);
 
   if (room.members.size === 0) {
@@ -387,6 +424,7 @@ function removeMember(roomId, room, clientId) {
     room.adminClientIds.add((members.find(([, sockets]) => sockets > 0) ?? members[0])[0]);
     broadcastState(roomId, room);
   }
+  broadcastMembers(roomId, room);
 }
 
 app.use(express.static(path.join(__dirname, 'public')));

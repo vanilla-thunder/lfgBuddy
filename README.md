@@ -26,7 +26,7 @@ In-game overlay for looking-for-group coordination. Multiple instances on differ
 └─────────────────────┘
 ```
 
-Rooms are identified by a shared code (e.g. `TEAM-ALPHA`). All clients in the same room see the same shared activity. State is in-memory — it is reset when all members leave. There are no player identities — no names, no per-member status — the room just tracks who's connected so it can clean itself up when empty, and to know who the room admin is.
+Rooms are identified by a shared code (e.g. `TEAM-ALPHA`). All clients in the same room see the same shared activity. State is in-memory — it is reset when all members leave. Every member enters a **display name** when joining (saved in `localStorage` for next time; the server strips control/invisible characters and caps it at 24 characters). The **web version shows the member list** — names, 👑 for admins, *(you)*, and reconnecting members greyed out; the Electron overlay doesn't. Client IDs are never part of that list.
 
 ### Room admin & guided mode
 

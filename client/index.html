@@ -13,7 +13,10 @@
     <div class="setup-panel">
       <div class="logo">LFG Buddy</div>
 
-      <label>Room Code</label>
+      <label for="player-name">Your Name</label>
+      <input type="text" id="player-name" placeholder="e.g. Ayres" autocomplete="nickname" spellcheck="false" maxlength="24">
+
+      <label for="room-code">Room Code</label>
       <input type="text" id="room-code" placeholder="e.g. TEAM-ALPHA" autocomplete="off" spellcheck="false" style="text-transform:uppercase">
 
       <button class="connect-btn" id="connect-btn">Connect</button>
@@ -29,8 +32,8 @@
       <div class="activity-section">
         <div class="hidden" id="activity-picker-view">
           <div class="picker-bar">
-            <label class="guided-toggle hidden" title="Only you can interact with the dashboard and areas while this is on">
-              <input type="checkbox" class="guided-mode-checkbox"><span class="guided-switch" aria-hidden="true"><span class="guided-knob">👑</span></span> Guided
+            <label class="guided-toggle hidden" title="Guided mode — only admins can interact with the dashboard, areas and drawing while this is on">
+              <input type="checkbox" class="guided-mode-checkbox" aria-label="Guided mode"><span class="guided-switch" aria-hidden="true"><span class="guided-knob">👑</span></span>
             </label>
           </div>
           <div class="activity-picker" id="activity-picker"></div>
@@ -40,8 +43,8 @@
           <div class="encounter-nav">
             <button class="nav-btn" id="back-to-activities-btn" disabled>Back</button>
             <button class="nav-btn" id="encounter-reset-btn" disabled>Reset</button>
-            <label class="guided-toggle hidden" title="Only you can interact with the dashboard and areas while this is on">
-              <input type="checkbox" class="guided-mode-checkbox"><span class="guided-switch" aria-hidden="true"><span class="guided-knob">👑</span></span> Guided
+            <label class="guided-toggle hidden" title="Guided mode — only admins can interact with the dashboard, areas and drawing while this is on">
+              <input type="checkbox" class="guided-mode-checkbox" aria-label="Guided mode"><span class="guided-switch" aria-hidden="true"><span class="guided-knob">👑</span></span>
             </label>
             <span class="encounter-label" id="encounter-label"></span>
             <button class="nav-btn" id="encounter-prev-btn" disabled>‹</button>

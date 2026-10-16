@@ -17,6 +17,7 @@ let isInteractive = false;
 const setupScreen       = document.getElementById('setup-screen');
 const overlayScreen     = document.getElementById('overlay-screen');
 const statusBar         = document.getElementById('status-bar');
+const nameInput         = document.getElementById('player-name');
 const roomCodeInput     = document.getElementById('room-code');
 const connectBtn        = document.getElementById('connect-btn');
 const activityPickerView = document.getElementById('activity-picker-view');
@@ -54,7 +55,12 @@ const drawingBoard = createDrawingBoard({
 // ── Restore saved settings ────────────────────────────────────────────────────
 
 localStorage.removeItem('lfg_server'); // no longer user-configurable
+nameInput.value = localStorage.getItem('lfg_name') || '';
 roomCodeInput.value = localStorage.getItem('lfg_room') || '';
+
+// Admin token from an lfgbuddy:// link, kept until the next connect — the
+// link may arrive before a name was entered.
+let pendingAdminToken = null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -409,21 +415,30 @@ document.addEventListener('click', (e) => {
 
 // ── Connect flow ──────────────────────────────────────────────────────────────
 
-// adminToken: from an lfgbuddy:// admin link (validated in main.js).
-function connectToRoom(adminToken = null) {
+// Every member needs a display name; it's remembered for next time (the
+// server sanitizes it again). The member list itself is web-only.
+function connectToRoom() {
+  const name = nameInput.value.trim();
   const code = roomCodeInput.value.trim().toUpperCase();
 
+  if (!name) {
+    setStatus('Enter your name to join.', 'error');
+    nameInput.focus();
+    return;
+  }
   if (!code) {
     setStatus('Room code is required.', 'error');
     return;
   }
 
+  localStorage.setItem('lfg_name', name);
   localStorage.setItem('lfg_room', code);
 
   setStatus('Connecting…', 'info');
   connectBtn.disabled = true;
 
-  window.lfg.connect(code, clientId, adminToken);
+  window.lfg.connect(code, clientId, pendingAdminToken, name);
+  pendingAdminToken = null;
 }
 
 function leaveRoom() {
@@ -446,7 +461,8 @@ disconnectBtn.addEventListener('click', leaveRoom);
 window.lfg.onJoinRoom((code, adminToken) => {
   if (!overlayScreen.classList.contains('hidden')) leaveRoom();
   roomCodeInput.value = code;
-  connectToRoom(adminToken);
+  pendingAdminToken = adminToken;
+  connectToRoom();
 });
 
 // Admin link for another device of this admin (e.g. a phone): the web

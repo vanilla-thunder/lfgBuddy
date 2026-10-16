@@ -571,6 +571,7 @@ body:not(.interactive-mode) .area-icon {
 }
 
 .draw-btn {
+  color: #fff;
   width: 22px;
   height: 22px;
   display: flex;
@@ -718,3 +719,9 @@ body:not(.interactive-mode) .draw-toolbar {
 }
 
 .qr-close:hover { background: rgba(255, 255, 255, 0.15); }
+
+/* Sidebar on the other side (⇄ button): mirror the layout, open the color
+   popup towards the board, and keep ⇄ itself last in the toolbar. */
+.board.toolbar-flipped { flex-direction: row-reverse; }
+.board.toolbar-flipped .draw-color-popup { left: auto; right: calc(100% + 4px); }
+.draw-side { margin-top: 4px; font-weight: 700; }

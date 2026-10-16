@@ -522,6 +522,7 @@ a.btn-secondary {
 }
 
 .draw-btn {
+  color: #fff;
   width: 36px;
   height: 36px;
   display: flex;
@@ -672,3 +673,48 @@ a.btn-secondary {
 }
 
 .qr-close:hover { background: rgba(255, 255, 255, 0.15); }
+
+/* ── Member list (web only) ── */
+
+.member-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.member-list:empty { display: none; }
+
+.member {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.member.self { border-color: var(--accent); }
+.member.offline { opacity: 0.45; font-style: italic; }
+
+/* Sidebar on the other side (⇄ button): mirror the layout, open the color
+   popup towards the board, and keep ⇄ itself last in the toolbar. */
+.board.toolbar-flipped { flex-direction: row-reverse; }
+.board.toolbar-flipped .draw-color-popup { left: auto; right: calc(100% + 6px); }
+.draw-side { margin-top: 6px; font-weight: 700; }
+
+/* Phones: the toolbar is a row; flipped puts it below the board, with the
+   popup opening upwards. */
+@media (max-width: 600px) {
+  .encounter-nav { flex-wrap: wrap; }
+  .encounter-nav .encounter-label { order: -1; flex-basis: 100%; }
+  .encounter-nav #encounter-prev-btn { margin-left: auto; }
+  .board.toolbar-flipped { flex-direction: column-reverse; }
+  .board.toolbar-flipped .draw-color-popup { top: auto; bottom: calc(100% + 6px); left: 0; right: auto; }
+  .draw-side { margin-top: 0; margin-left: auto; }
+}

@@ -20,7 +20,7 @@ function attachListeners(sock) {
 contextBridge.exposeInMainWorld('lfg', {
   serverUrl,
 
-  connect(roomId, clientId, adminToken = null) {
+  connect(roomId, clientId, adminToken = null, name = '') {
     if (socket) {
       socket.removeAllListeners();
       socket.disconnect();
@@ -33,7 +33,7 @@ contextBridge.exposeInMainWorld('lfg', {
     });
 
     socket.on('connect', () => {
-      socket.emit('join', { roomId, clientId, adminToken });
+      socket.emit('join', { roomId, clientId, adminToken, name });
     });
 
     attachListeners(socket);

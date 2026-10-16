@@ -15,6 +15,11 @@
       <p class="subtitle">Join a room to sync with your party</p>
 
       <div class="field">
+        <label for="player-name">Your Name</label>
+        <input type="text" id="player-name" placeholder="e.g. Ayres" autocomplete="nickname" spellcheck="false" maxlength="24">
+      </div>
+
+      <div class="field">
         <label for="room-code">Room Code</label>
         <input type="text" id="room-code" placeholder="e.g. TEAM-ALPHA" autocomplete="off" spellcheck="false" maxlength="32">
       </div>
@@ -34,8 +39,8 @@
           <div class="room-code-label">ROOM: <span id="room-display"></span></div>
         </div>
         <div class="header-actions">
-          <label class="guided-toggle hidden" id="guided-toggle" title="Only you can interact with the dashboard and areas while this is on">
-            <input type="checkbox" id="guided-mode-checkbox"><span class="guided-switch" aria-hidden="true"><span class="guided-knob">👑</span></span> Guided mode
+          <label class="guided-toggle hidden" id="guided-toggle" title="Guided mode — only admins can interact with the dashboard, areas and drawing while this is on">
+            <input type="checkbox" id="guided-mode-checkbox" aria-label="Guided mode"><span class="guided-switch" aria-hidden="true"><span class="guided-knob">👑</span></span>
           </label>
           <button class="btn-secondary hidden" id="overlay-visibility-btn" title="Show or hide the overlay window on the streamer's screen">Hide Overlay</button>
           <button class="btn-secondary" id="copy-link-btn" title="Copy invite link">Copy Link</button>
@@ -70,6 +75,8 @@
           </div>
         </div>
       </div>
+
+      <div class="member-list" id="member-list" aria-label="Members in this room"></div>
 
     </div>
   </div>

@@ -7,9 +7,10 @@ guided-mode-aware unless stated otherwise.
 | # | Feature | Status |
 |---|---|---|
 | 1 | [Drawing pane](#1-drawing-pane) | Done |
-| 2 | [Ready check](#2-ready-check) | Planned |
-| 3 | [Countdown timer](#3-countdown-timer) | Planned |
-| 4 | [External picture via URL](#4-external-picture-via-url) | Planned |
+| 2 | interactive areas grouping | Planned |
+| 3 | [Ready check](#2-ready-check) | Planned |
+| 4 | [Countdown timer](#3-countdown-timer) | Planned |
+| 5 | [External picture via URL](#4-external-picture-via-url) | Planned |
 
 ---
 
@@ -29,7 +30,13 @@ Freehand drawing on top of the current encounter, with a tool sidebar.
 Later / nice to have: undo of own last stroke, live stroke streaming while
 drawing, line-width selector.
 
-## 2. Ready check
+## 2. Interactive areas grouping
+
+Grouping Interactive areas should change the handling of available options.  
+First grouping mode removes already assigned options from option lists for other areas in the same group.
+Second grouping mode keeps already selected options available, but selecting an option already selected in another area unselects it there. 
+
+## 3. Ready check
 
 Admin starts a ready check; every connected client answers ready / not ready;
 everyone sees the tally and when all are ready.
@@ -39,7 +46,7 @@ Open questions:
   without names; showing *who* isn't ready would need display names.
 - Timeout for unanswered checks?
 
-## 3. Countdown timer
+## 4. Countdown timer
 
 Admin starts a countdown (e.g. 5 s / 10 s / custom); all clients show it in
 sync.
@@ -48,7 +55,7 @@ Notes:
 - Server stores the end time and broadcasts the remaining duration; clients
   count down locally — no per-second broadcasts, robust against clock skew.
 
-## 4. External picture via URL
+## 5. External picture via URL
 
 Show a picture from an arbitrary URL (e.g. a custom strat map) to the room.
 

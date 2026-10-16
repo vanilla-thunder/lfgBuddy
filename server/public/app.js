@@ -16,10 +16,12 @@ let socket = null;
 
 const setupScreen      = document.getElementById('setup-screen');
 const roomScreen       = document.getElementById('room-screen');
+const nameInput        = document.getElementById('player-name');
 const roomCodeInput    = document.getElementById('room-code');
 const connectBtn       = document.getElementById('connect-btn');
 const statusMsg        = document.getElementById('status-msg');
 const roomDisplay      = document.getElementById('room-display');
+const memberList       = document.getElementById('member-list');
 const activityPicker    = document.getElementById('activity-picker');
 const activityControls  = document.getElementById('activity-controls');
 const backToActivitiesBtn = document.getElementById('back-to-activities-btn');
@@ -54,6 +56,7 @@ const drawingBoard = createDrawingBoard({
 
 // ── Restore saved values ──────────────────────────────────────────────────────
 
+nameInput.value = localStorage.getItem('lfg_name') || '';
 roomCodeInput.value = localStorage.getItem('lfg_room') || '';
 
 // An invite link (e.g. lfg.example.com/oida) auto-joins that room (see the
@@ -374,6 +377,22 @@ function applyImageHidden({ encounterId, hidden }) {
   drawingBoard.render();
 }
 
+// ── Member list (web only) ───────────────────────────────────────────────────
+
+// Names are user input: rendered via textContent only, never as HTML.
+function renderMembers(members) {
+  memberList.replaceChildren();
+  for (const member of members) {
+    const chip = document.createElement('span');
+    chip.className = 'member';
+    chip.classList.toggle('offline', !member.online);
+    chip.classList.toggle('self', member.self);
+    chip.title = [member.isAdmin && 'Admin', !member.online && 'Reconnecting…'].filter(Boolean).join(' · ');
+    chip.textContent = `${member.isAdmin ? '👑 ' : ''}${member.name}${member.self ? ' (you)' : ''}`;
+    memberList.appendChild(chip);
+  }
+}
+
 // ── Icon picker popup ────────────────────────────────────────────────────────
 
 function pickIcon(areaId, iconId) {
@@ -439,7 +458,17 @@ document.addEventListener('click', (e) => {
 
 // ── Connect ───────────────────────────────────────────────────────────────────
 
+// Every member needs a display name; it's remembered for next time. The
+// server sanitizes it again — this is only for a friendly prompt.
 function connectToRoom(code) {
+  const name = nameInput.value.trim();
+  if (!name) {
+    setStatus('Enter your name to join.', 'error');
+    nameInput.focus();
+    return;
+  }
+  localStorage.setItem('lfg_name', name);
+
   currentRoomId = code;
   localStorage.setItem('lfg_room', code);
 
@@ -450,7 +479,7 @@ function connectToRoom(code) {
   socket = io({ reconnection: true, reconnectionDelay: 2000 });
 
   socket.on('connect', () => {
-    socket.emit('join', { roomId: code, clientId, adminToken: pendingAdminToken });
+    socket.emit('join', { roomId: code, clientId, adminToken: pendingAdminToken, name });
     reconnectBanner.classList.add('hidden');
   });
 
@@ -478,6 +507,7 @@ function connectToRoom(code) {
     openInAppLink.href = appLinkFor(currentRoomId, state.adminToken);
   });
 
+  socket.on('members', ({ members }) => renderMembers(members));
   socket.on('icon-updated', (payload) => applyIconUpdate(payload));
   socket.on('svg-updated', (payload) => applySvgUpdate(payload));
   socket.on('stroke-added', (payload) => applyStrokeAdded(payload));
@@ -526,6 +556,7 @@ disconnectBtn.addEventListener('click', () => {
   state = { activityId: null, encounterIndex: 0, encounters: {}, isAdmin: false, adminToken: null, guidedMode: false, overlayVisible: true };
   iconPicker.classList.add('hidden');
   hideAdminQr();
+  renderMembers([]);
   setStatus('');
   history.replaceState(null, '', '/');
 });

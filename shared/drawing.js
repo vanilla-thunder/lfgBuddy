@@ -128,6 +128,35 @@ function createDrawingBoard({ wrap, canvas, toolbar, getCurrent, canDraw, emit }
   const clearBtn = makeButton('Clear drawing', '🗑️');
   const allButtons = [imageBtn, penBtn, colorBtn, eraserBtn, clearBtn, ...swatches];
 
+  // Moves the sidebar to the other side of the board (the .board parent
+  // gets .toolbar-flipped). A per-device layout preference, not room state:
+  // remembered in localStorage, never synced, and always usable.
+  const SIDE_KEY = 'lfg_draw_toolbar_flipped';
+  const board = toolbar.parentElement;
+  const sideBtn = makeButton('Move toolbar to the other side', '⇄');
+  sideBtn.classList.add('draw-side');
+
+  function setFlipped(flipped) {
+    board.classList.toggle('toolbar-flipped', flipped);
+    try {
+      localStorage.setItem(SIDE_KEY, flipped ? '1' : '0');
+    } catch {
+      // storage unavailable (private mode etc.) — just not remembered
+    }
+  }
+
+  let storedSide = null;
+  try {
+    storedSide = localStorage.getItem(SIDE_KEY);
+  } catch {
+    // ignore
+  }
+  board.classList.toggle('toolbar-flipped', storedSide === '1');
+  sideBtn.addEventListener('click', () => {
+    closeColorPopup();
+    setFlipped(!board.classList.contains('toolbar-flipped'));
+  });
+
   function toggleTool(next) {
     tool = tool === next ? null : next;
     updateControls();
