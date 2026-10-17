@@ -38,6 +38,7 @@ mountStaticRoutes(app);
 //   leaveTimers: Map<clientId, Timeout>,
 //   names: Map<clientId, string>,     // display names, sanitized
 //   readyCheck: Map<clientId, boolean|null> | null,  // running check: answer per member (null = pending)
+//   timer: { endsAt, durationMs, label, replaceBoard, timeout } | null,  // running timer (server clock)
 //   adminClientIds: Set<clientId>,
 //   adminToken: string,  // secret in admin links; joining with it grants admin
 //   guidedMode: boolean,
@@ -62,13 +63,17 @@ const RECONNECT_GRACE_MS = 15000;
 const MAX_NAME_LENGTH = 24;
 const DEFAULT_NAME = 'Guest';
 
-// Display names are free text from the client: drop control and invisible
-// format characters (incl. bidi overrides, which could disguise a name),
-// collapse whitespace, and cap the length in characters, not UTF-16 units.
-// Clients render names as text only, never as HTML.
+// Free text from clients (display names, timer texts): drop control and
+// invisible format characters (incl. bidi overrides, which could disguise
+// it), collapse whitespace, and cap the length in characters, not UTF-16
+// units. Clients render it as text only, never as HTML.
+function sanitizeText(raw, maxLength) {
+  const text = String(raw ?? '').normalize('NFC').replace(/\s+/g, ' ').replace(/\p{C}/gu, '').trim();
+  return [...text].slice(0, maxLength).join('').trim();
+}
+
 function sanitizeName(raw) {
-  const name = String(raw ?? '').normalize('NFC').replace(/\s+/g, ' ').replace(/\p{C}/gu, '').trim();
-  return [...name].slice(0, MAX_NAME_LENGTH).join('').trim() || DEFAULT_NAME;
+  return sanitizeText(raw, MAX_NAME_LENGTH) || DEFAULT_NAME;
 }
 
 function emptyEncounterState() {
@@ -109,6 +114,7 @@ function getOrCreateRoom(roomId) {
       leaveTimers: new Map(),
       names: new Map(),
       readyCheck: null,
+      timer: null,
       adminClientIds: new Set(),
       adminToken: crypto.randomBytes(16).toString('hex'),
       guidedMode: false,
@@ -152,6 +158,32 @@ function currentEncounterId(room) {
 }
 
 // Per client: `isAdmin`/`adminToken` describe the receiving client only.
+// ── Timer ────────────────────────────────────────────────────────────────────
+// Admins start/cancel (regardless of guided mode); a new one replaces a
+// running one. Optional text (cleaned like names) and an option to show it
+// instead of the board. The server keeps the end time on its own clock and
+// only ever sends the *remaining* time — at start, and in state-sync for late
+// joiners — so clients count down locally without per-second broadcasts,
+// and their system clocks don't matter.
+const MIN_TIMER_SECONDS = 1;
+const MAX_TIMER_SECONDS = 60 * 60;
+const MAX_TIMER_LABEL_LENGTH = 60;
+
+function timerPayload(room) {
+  if (!room.timer) return null;
+  return {
+    remainingMs: Math.max(0, room.timer.endsAt - Date.now()),
+    durationMs: room.timer.durationMs,
+    label: room.timer.label,
+    replaceBoard: room.timer.replaceBoard,
+  };
+}
+
+function clearTimer(room) {
+  clearTimeout(room.timer?.timeout);
+  room.timer = null;
+}
+
 function serializeRoom(room, clientId) {
   const admin = isAdmin(room, clientId);
   return {
@@ -166,6 +198,7 @@ function serializeRoom(room, clientId) {
     isAdmin: admin,
     adminToken: admin ? room.adminToken : null,
     guidedMode: room.guidedMode,
+    timer: timerPayload(room),
     overlayVisible: room.overlayVisible,
   };
 }
@@ -460,6 +493,36 @@ io.on('connection', (socket) => {
     broadcastMembers(currentRoomId, room);
   });
 
+  on('start-timer', ({ seconds, label, replaceBoard }) => {
+    const room = rooms.get(currentRoomId);
+    if (!room || !isAdmin(room, currentClientId)) return;
+    if (!Number.isInteger(seconds) || seconds < MIN_TIMER_SECONDS || seconds > MAX_TIMER_SECONDS) return;
+
+    clearTimer(room);
+    const durationMs = seconds * 1000;
+    const timer = {
+      endsAt: Date.now() + durationMs,
+      durationMs,
+      label: sanitizeText(label, MAX_TIMER_LABEL_LENGTH),
+      replaceBoard: replaceBoard === true,
+      timeout: null,
+    };
+    // Clients finish on their own; the server just forgets it at the end.
+    timer.timeout = setTimeout(() => {
+      if (room.timer === timer) room.timer = null;
+    }, durationMs);
+    room.timer = timer;
+    io.to(currentRoomId).emit('timer', timerPayload(room));
+  });
+
+  on('cancel-timer', () => {
+    const room = rooms.get(currentRoomId);
+    if (!room?.timer || !isAdmin(room, currentClientId)) return;
+
+    clearTimer(room);
+    io.to(currentRoomId).emit('timer', null);
+  });
+
   // Only the room admin may toggle guided mode — this is the one action a
   // non-admin can never take, even before guided mode is on.
   on('set-guided-mode', ({ enabled }) => {
@@ -508,6 +571,7 @@ function removeMember(roomId, room, clientId) {
   console.log(`[${roomId}] ${logId(clientId)} left (${room.members.size} members)`);
 
   if (room.members.size === 0) {
+    clearTimer(room);
     rooms.delete(roomId);
     console.log(`[${roomId}] room cleaned up`);
     return;

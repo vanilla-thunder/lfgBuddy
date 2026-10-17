@@ -171,6 +171,19 @@ a.btn-secondary {
   text-decoration: none;
 }
 
+/* Header buttons: same height as the guided-mode switch (24px), and one
+   font for <button>s and the "Open in App" <a> (buttons don't inherit the
+   page font by default). */
+.header-actions .btn-secondary,
+.header-actions .btn-danger {
+  height: 24px;
+  line-height: 22px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* The overlay app is desktop-only, so only offer "Open in App" on devices
    with a mouse-like primary pointer (excludes phones/tablets). */
 #open-in-app-link { display: none; }
@@ -462,7 +475,9 @@ a.btn-secondary {
   position: absolute;
   z-index: 50;
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  /* Fixed column/option size: the popup is positioned with `left`, so with
+     flexible columns its size depended on the room left to the right edge. */
+  grid-template-columns: repeat(6, 40px);
   gap: 4px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -474,6 +489,11 @@ a.btn-secondary {
 .icon-picker.hidden { display: none; }
 
 .icon-option {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid transparent;
   border-radius: 6px;
@@ -826,3 +846,140 @@ a.btn-secondary {
 .ready-abort { color: #ed4245; border-color: rgba(237, 66, 69, 0.4); }
 
 .ready-locked-hint { display: none; font-size: 13px; color: #b9bbbe; }
+
+/* ── Timer (shared/timer.js) ── */
+
+.timer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 0 0 16px;
+  color: #fff;
+  text-align: center;
+  -webkit-app-region: no-drag;
+}
+
+.timer-number {
+  font-size: 64px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+.timer-label {
+  font-size: 18px;
+  font-weight: 700;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+
+.timer.timer-final .timer-number { color: #ed4245; }
+.timer.timer-go .timer-number { color: #57f287; }
+
+/* Shown instead of the board: big, stacked; the board panel's other
+   children are hidden (a running ready check stays visible). */
+.timer.timer-large {
+  flex-direction: column;
+  padding: 32px 16px;
+}
+.timer.timer-large .timer-number { font-size: 140px; }
+.timer.timer-large .timer-label { font-size: 28px; }
+.timer-replaces-board > :not(#ready-check) { display: none !important; }
+
+.timer-cancel {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(237, 66, 69, 0.4);
+  border-radius: 4px;
+  color: #ed4245;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.timer-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-app-region: no-drag;
+}
+
+.timer-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 95%;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  color: #fff;
+}
+
+.timer-card-title { font-size: 16px; font-weight: 700; }
+
+.timer-presets,
+.timer-custom {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.timer-preset,
+.timer-close {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.timer-preset:hover,
+.timer-close:hover { background: rgba(255, 255, 255, 0.16); }
+
+.timer-text-input,
+.timer-custom input,
+.timer-custom select {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 8px 14px;
+}
+
+.timer-text-input { width: 100%; }
+.timer-custom input { width: 90px; }
+.timer-custom select option { background: #23262d; }
+
+.timer-replace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.timer-close { font-weight: 600; color: #dcddde; }
+
+/* Don't inherit full-width text-input styles. */
+.timer-replace input { width: auto; margin: 0; flex: none; }

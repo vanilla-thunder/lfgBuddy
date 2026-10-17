@@ -840,3 +840,144 @@ body:not(.interactive-mode) .draw-toolbar {
 body:not(.interactive-mode) .ready-actions,
 body:not(.interactive-mode) .ready-footer { display: none; }
 body:not(.interactive-mode) .ready-locked-hint:not(.hidden) { display: block; }
+
+/* ── Timer (shared/timer.js) ── */
+
+.timer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 4px 12px 0;
+  color: #fff;
+  text-align: center;
+  -webkit-app-region: no-drag;
+}
+
+.timer-number {
+  font-size: 36px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+.timer-label {
+  font-size: 12px;
+  font-weight: 700;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+
+.timer.timer-final .timer-number { color: #ed4245; }
+.timer.timer-go .timer-number { color: #57f287; }
+
+/* Shown instead of the board: big, stacked; the board panel's other
+   children are hidden (a running ready check stays visible). */
+.timer.timer-large {
+  flex-direction: column;
+  padding: 16px 8px;
+}
+.timer.timer-large .timer-number { font-size: 72px; }
+.timer.timer-large .timer-label { font-size: 16px; }
+.timer-replaces-board > :not(#ready-check) { display: none !important; }
+
+.timer-cancel {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(237, 66, 69, 0.4);
+  border-radius: 4px;
+  color: #ed4245;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.timer-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-app-region: no-drag;
+}
+
+.timer-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 95%;
+  padding: 12px;
+  background: rgba(28, 31, 35, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  color: #fff;
+}
+
+.timer-card-title { font-size: 12px; font-weight: 700; }
+
+.timer-presets,
+.timer-custom {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+}
+
+.timer-preset,
+.timer-close {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.timer-preset:hover,
+.timer-close:hover { background: rgba(255, 255, 255, 0.16); }
+
+.timer-text-input,
+.timer-custom input,
+.timer-custom select {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.timer-text-input { width: 100%; }
+.timer-custom input { width: 60px; }
+.timer-custom select option { background: #23262d; }
+
+.timer-replace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.timer-close { font-weight: 600; color: #dcddde; }
+
+/* Locked (click-through): the timer stays visible over the game, the
+   Cancel button can't be clicked anyway. */
+body:not(.interactive-mode) .timer-cancel { display: none; }
+
+/* Don't inherit full-width text-input styles. */
+.timer-replace input { width: auto; margin: 0; flex: none; }

@@ -10,7 +10,7 @@ guided-mode-aware unless stated otherwise.
 | 2 | [Interactive areas grouping](#2-interactive-areas-grouping) | Done |
 | 3 | [Ready check](#3-ready-check) | Done |
 | 4 | [Electron app auto-update](#4-electron-app-auto-update) | Done |
-| 5 | [Countdown timer](#5-countdown-timer) | Planned |
+| 5 | [Timer](#5-timer) | Done |
 | 6 | [External picture via URL](#6-external-picture-via-url) | Planned |
 
 ---
@@ -95,10 +95,10 @@ changes) break older overlays.
   separate client ID per server — so one installer serves every server and
   fork.
 
-## 5. Countdown timer
+## 5. Timer
 
-Admin starts a countdown (e.g. 5 s / 10 s / custom); all clients show it in
-sync.
+Admin starts a timer (presets in minutes or a custom duration, optional
+text, optionally shown instead of the board); all clients show it in sync.
 
 Notes:
 - Server stores the end time and broadcasts the remaining duration; clients

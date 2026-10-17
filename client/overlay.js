@@ -49,6 +49,7 @@ const adminLinkRow      = document.getElementById('admin-link-row');
 const copyAdminLinkBtn  = document.getElementById('copy-admin-link-btn');
 const adminQrBtn        = document.getElementById('admin-qr-btn');
 const readyCheckBtn     = document.getElementById('ready-check-btn');
+const timerBtn          = document.getElementById('timer-btn');
 const reconnectBanner   = document.getElementById('reconnect-banner');
 // Two copies: one above the activity picker, one in the encounter nav row.
 const guidedToggles         = document.querySelectorAll('.guided-toggle');
@@ -64,6 +65,16 @@ const drawingBoard = createDrawingBoard({
   },
   canDraw: canInteract,
   emit: (event, data) => window.lfg.emit(event, data),
+});
+
+// Timer display at the top of the panel, or instead of the board
+// (shared/timer.js) — also visible in locked mode; admins start one from
+// the footer's admin row.
+const timer = createTimer({
+  container: document.getElementById('timer'),
+  host: document.getElementById('board-panel'),
+  emit: (event, data) => window.lfg.emit(event, data),
+  isAdmin: () => isAdmin(),
 });
 
 // Last member list from the server. The overlay shows no member list of
@@ -157,6 +168,7 @@ function renderPermissions() {
   backToActivitiesBtn.disabled = !canInteract();
   drawingBoard.updateControls();
   renderReadyCheck();
+  timer.updateControls();
 }
 
 // Admins start a ready check from the footer's admin row; while it runs,
@@ -510,6 +522,7 @@ function leaveRoom() {
   hideAdminQr();
   currentMembers = [];
   readyView.hide();
+  timer.hide();
   setReadyPending(false);
   setStatus('');
 }
@@ -567,6 +580,10 @@ copyAdminLinkBtn.addEventListener('click', () => {
   setTimeout(() => { copyAdminLinkBtn.textContent = 'Copy Admin Link'; }, 1500);
 });
 
+timerBtn.addEventListener('click', () => {
+  openTimerDialog((options) => window.lfg.emit('start-timer', options));
+});
+
 readyCheckBtn.addEventListener('click', () => {
   window.lfg.emit('start-ready-check', {});
 });
@@ -604,6 +621,7 @@ window.lfg.on('activities-manifest', (m) => {
 
 window.lfg.on('state-sync', (newState) => {
   state = newState;
+  timer.apply(state.timer, true);
   setupScreen.classList.add('hidden');
   overlayScreen.classList.remove('hidden');
   reconnectBanner.classList.add('hidden');
@@ -628,6 +646,7 @@ window.lfg.on('members', ({ members }) => {
   renderReadyCheck();
 });
 window.lfg.on('ready-check-done', (result) => readyView.showResult(result));
+window.lfg.on('timer', (payload) => timer.apply(payload));
 window.lfg.on('stroke-added', (payload) => applyStrokeAdded(payload));
 window.lfg.on('stroke-erased', (payload) => applyStrokeErased(payload));
 window.lfg.on('drawing-cleared', (payload) => applyDrawingCleared(payload));

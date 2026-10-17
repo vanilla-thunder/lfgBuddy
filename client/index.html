@@ -33,6 +33,7 @@
     <div class="overlay-panel">
       <div class="reconnect-banner hidden" id="reconnect-banner">Reconnecting…</div>
 
+      <div id="timer"></div>
       <div class="activity-section" id="board-panel">
         <div id="ready-check" role="status"></div>
         <div class="hidden" id="activity-picker-view">
@@ -73,6 +74,7 @@
           <button class="admin-link-btn" id="copy-admin-link-btn" title="Copy a link that makes another device of yours (e.g. your phone) an admin of this room — share it with no one else">Copy Admin Link</button>
           <button class="admin-link-btn" id="admin-qr-btn" title="Show the admin link as a QR code to scan with your phone">Admin QR</button>
           <button class="admin-link-btn" id="ready-check-btn" title="Ask everyone in the room whether they're ready">Ready Check</button>
+          <button class="admin-link-btn" id="timer-btn" title="Start a timer everyone sees in sync">Timer</button>
         </div>
         <button class="disconnect-btn" id="disconnect-btn">Leave Room</button>
       </div>
@@ -84,6 +86,7 @@
   <script src="../shared/drawing.js"></script>
   <script src="../shared/area-groups.js"></script>
   <script src="../shared/ready-check.js"></script>
+  <script src="../shared/timer.js"></script>
   <script src="../shared/vendor/qrcode-generator.js"></script>
   <script src="../shared/admin-qr.js"></script>
   <script src="overlay.js"></script>

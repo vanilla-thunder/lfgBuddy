@@ -37,6 +37,7 @@ const copyLinkBtn      = document.getElementById('copy-link-btn');
 const copyAdminLinkBtn = document.getElementById('copy-admin-link-btn');
 const adminQrBtn       = document.getElementById('admin-qr-btn');
 const readyCheckBtn    = document.getElementById('ready-check-btn');
+const timerBtn         = document.getElementById('timer-btn');
 const openInAppLink    = document.getElementById('open-in-app-link');
 const reconnectBanner  = document.getElementById('reconnect-banner');
 const guidedToggle       = document.getElementById('guided-toggle');
@@ -52,6 +53,15 @@ const drawingBoard = createDrawingBoard({
   },
   canDraw: () => Boolean(socket?.connected) && canInteract(),
   emit: (event, data) => socket?.connected && socket.emit(event, data),
+});
+
+// Timer display above the board, or instead of it (shared/timer.js);
+// admins start one from the header.
+const timer = createTimer({
+  container: document.getElementById('timer'),
+  host: document.getElementById('board-panel'),
+  emit: (event, data) => socket?.connected && socket.emit(event, data),
+  isAdmin: () => isAdmin(),
 });
 
 // Last member list from the server — also the source of ready-check state.
@@ -168,6 +178,8 @@ function renderPermissions() {
   backToActivitiesBtn.disabled = !canInteract();
   drawingBoard.updateControls();
   renderReadyCheck();
+  timerBtn.classList.toggle('hidden', !isAdmin());
+  timer.updateControls();
 }
 
 // Admins start a ready check from the header; while it runs, the view in
@@ -470,8 +482,13 @@ function positionIconPicker(anchorEl) {
   }
   top = Math.max(top, window.scrollY + margin);
 
-  iconPicker.style.left = `${left}px`;
-  iconPicker.style.top = `${top}px`;
+  // #icon-picker is inside the zoomed <html> (see style.css), so the
+  // getBoundingClientRect() values above are already scaled by that zoom
+  // factor. Writing them straight back as style.left/top would scale them a
+  // second time, so divide it back out (same as client/overlay.js).
+  const zoom = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+  iconPicker.style.left = `${left / zoom}px`;
+  iconPicker.style.top = `${top / zoom}px`;
 }
 
 document.addEventListener('click', (e) => {
@@ -517,6 +534,7 @@ function connectToRoom(code) {
 
   socket.on('state-sync', (newState) => {
     state = newState;
+    timer.apply(state.timer, true);
     // Used once: from here on the server knows this client as an admin.
     pendingAdminToken = null;
     setupScreen.classList.add('hidden');
@@ -533,6 +551,7 @@ function connectToRoom(code) {
 
   socket.on('members', ({ members }) => renderMembers(members));
   socket.on('ready-check-done', (result) => readyView.showResult(result));
+  socket.on('timer', (payload) => timer.apply(payload));
   socket.on('icon-updated', (payload) => applyIconUpdate(payload));
   socket.on('svg-updated', (payload) => applySvgUpdate(payload));
   socket.on('stroke-added', (payload) => applyStrokeAdded(payload));
@@ -583,6 +602,7 @@ disconnectBtn.addEventListener('click', () => {
   hideAdminQr();
   renderMembers([]);
   readyView.hide();
+  timer.hide();
   setStatus('');
   history.replaceState(null, '', '/');
 });
@@ -608,6 +628,12 @@ copyLinkBtn.addEventListener('click', () => {
 copyAdminLinkBtn.addEventListener('click', () => {
   if (!currentRoomId || !state.adminToken) return;
   copyLink(copyAdminLinkBtn, adminLinkFor(currentRoomId, state.adminToken), 'Copy this admin link (keep it private):');
+});
+
+timerBtn.addEventListener('click', () => {
+  openTimerDialog((options) => {
+    if (socket?.connected) socket.emit('start-timer', options);
+  });
 });
 
 readyCheckBtn.addEventListener('click', () => {
