@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; img-src 'self' http://localhost:3000 https://lfg.example.com;">
+  <!-- CSP: sent as a response header by main.js (installContentSecurityPolicy),
+       since it has to name the configured server. -->
   <title>LFG Buddy</title>
   <link rel="stylesheet" href="overlay.css">
 </head>

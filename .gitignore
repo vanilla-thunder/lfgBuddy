@@ -1,3 +1,6 @@
 node_modules/
 .idea/
 .claude/settings.local.json
+# Deployment-specific config — see .env.example / app-config.example.json
+.env
+app-config.json

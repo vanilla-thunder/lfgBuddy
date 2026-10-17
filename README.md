@@ -82,7 +82,7 @@ The image contains only the npm dependencies; `server/` and `shared/` are bind-m
 
 > **Upload, then restart.** Whenever a change touches the socket protocol (new/changed events or payloads — typically `server/index.js` together with `shared/` or `server/public/`), upload all files and then run `docker compose restart`. Until the restart, browsers already get the new client code while the old server code is still running, and the mismatched events are silently dropped (e.g. drawings stop syncing). The same applies locally: restart `npm run server` after pulling such a change, and restart the Electron overlay (`npm run client`), since it doesn't reload `shared/` on its own.
 
-The server is reachable at `https://lfg.example.com` with TLS handled by Traefik (`letsencrypt` cert resolver).
+Before the first start, copy `.env.example` to `.env` (git-ignored) and set `LFG_HOST` (the server's public hostname) and `LFG_CERT_RESOLVER` (your Traefik certificate resolver) — compose refuses to start without them. The server is then reachable at `https://<LFG_HOST>` with TLS handled by Traefik.
 
 > **Scaling note:** the room state is held in memory per process. If you run multiple replicas, add sticky sessions to the Traefik config:
 > ```
@@ -98,11 +98,11 @@ The server is reachable at `https://lfg.example.com` with TLS handled by Traefik
 ```bash
 # from repo root
 npm install
-npm start      # production — connects to https://lfg.example.com
-npm run dev    # development — connects to http://localhost:3000
+npm run prod     # production — connects to the server in app-config.json
+npm run client   # development — connects to http://localhost:3000
 ```
 
-The server URL is fixed per mode (`SERVER_URLS` in `main.js`). On launch a setup panel appears; enter a room code and click **Connect**. `lfgbuddy://` links always launch in production mode unless the overlay is already running in dev mode.
+The production server URL is not in the repo: copy `app-config.example.json` to `app-config.json` (git-ignored) and set `serverUrl`. It must be `https` (plain `http` only for localhost); without a valid one the production overlay shows an error and quits. Dev mode always uses `http://localhost:3000`. The URL is fixed per mode in `main.js` and handed to the preload — the renderer can't choose the server. On launch a setup panel appears; enter a room code and click **Connect**. `lfgbuddy://` links always launch in production mode unless the overlay is already running in dev mode.
 
 ### Hotkeys
 
@@ -199,7 +199,7 @@ Ungrouped areas behave as before. The server enforces both modes in `set-icon`, 
 
 `x`/`y`/`w`/`h` are absolute px offsets from the encounter image's edges (not percentages, and not affected by how large the image renders). `x`/`y` ≥ 0 anchor from the left/top edge; negative `x`/`y` anchor from the right/bottom edge instead (e.g. `x: -5` = 5px from the right edge), so an area can stay pinned to a corner. `w`/`h` are always the area's pixel width/height. `server/activities/index.js` discovers every subdirectory with an `activity.js` at startup, rewrites each `image`/`svg`/`thumbnail` filename into its served URL (`/activities/<id>/images/<file>`), validates `type` against `['dungeon', 'raid']` (throwing at startup if it's set to anything else), builds the validation lookups `set-icon`/`toggle-svg` use, and mounts one static route per activity so its `images/` folder is servable — `server/index.js` itself only knows the room/socket protocol, not activity content.
 
-The manifest is pushed to clients over the socket connection (`activities-manifest` event) on connect, so no separate HTTP fetch or CORS setup is needed — the Electron overlay's CSP (`client/index.html`) only allows images from the two `SERVER_URLS` origins in `main.js` — keep them in sync when changing either.
+The manifest is pushed to clients over the socket connection (`activities-manifest` event) on connect, so no separate HTTP fetch or CORS setup is needed — the Electron overlay's CSP is sent by `main.js` and only allows images from the one server the overlay is connected to (dev: localhost, prod: `app-config.json`).
 
 ---
 

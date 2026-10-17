@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, globalShortcut, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, screen, session } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -15,14 +15,54 @@ let isInteractive = true;
 // return to (hidden, plus the interactive mode it had) once answered.
 let readyCheckRestore = null;
 
-// `npm run dev` (electron . --dev) targets a local server; everything else,
-// including protocol-link launches, targets production. The URL is fixed
-// here and handed to preload — the renderer can't choose the server.
-const SERVER_URLS = {
-  dev: 'http://localhost:3000',
-  prod: 'https://lfg.example.com',
-};
+// `npm run client` (electron . --dev) targets a local server; everything
+// else, including protocol-link launches, targets production — whose URL
+// comes from app-config.json (git-ignored; see app-config.example.json), so
+// the repo carries no deployment URL and forks just set their own. The URL
+// is fixed here and handed to preload — the renderer can't choose the
+// server.
+const DEV_SERVER_URL = 'http://localhost:3000';
+const CONFIG_FILE = path.join(__dirname, 'app-config.json');
 const MODE = process.argv.includes('--dev') ? 'dev' : 'prod';
+
+// Origin of a configured server URL, or null if unusable: https only —
+// plain http just for localhost — so room traffic (incl. admin tokens) is
+// never sent unencrypted over a network.
+function serverOrigin(raw) {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLocal)) return null;
+  return url.origin;
+}
+
+function loadServerUrl() {
+  if (MODE === 'dev') return DEV_SERVER_URL;
+  let config;
+  try {
+    config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+  } catch {
+    return null;
+  }
+  return serverOrigin(config?.serverUrl);
+}
+
+const SERVER_URL = loadServerUrl();
+
+// The overlay page's CSP, sent as a response header so it can name the
+// configured server — a <meta> CSP is static, and a second one could only
+// narrow it. Images may only come from that one server; scripts and styles
+// only from the app itself.
+function installContentSecurityPolicy() {
+  const csp = `default-src 'self'; style-src 'self'; img-src 'self' ${SERVER_URL}`;
+  session.defaultSession.webRequest.onHeadersReceived({ urls: ['file:///*'] }, (details, callback) => {
+    callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [csp] } });
+  });
+}
 
 function applyInteractive() {
   if (isInteractive) {
@@ -137,7 +177,7 @@ function createWindow() {
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      additionalArguments: [`--lfg-server=${SERVER_URLS[MODE]}`],
+      additionalArguments: [`--lfg-server=${SERVER_URL}`],
       contextIsolation: true,
       nodeIntegration: false,
       // Electron defaults preload scripts to the sandbox, which restricts
@@ -197,6 +237,12 @@ pendingJoin = findJoinLink(process.argv);
 app.whenReady().then(() => {
   // app.quit() is async — don't open a window in the instance that's exiting.
   if (!gotInstanceLock) return;
+  if (!SERVER_URL) {
+    dialog.showErrorBox('LFG Buddy', `No valid server URL configured.\n\nCreate ${CONFIG_FILE} with\n{ "serverUrl": "https://your-server.example" }\n(see app-config.example.json; https required except for localhost).`);
+    app.quit();
+    return;
+  }
+  installContentSecurityPolicy();
   createWindow();
 
   // F9 — toggle between interactive and click-through

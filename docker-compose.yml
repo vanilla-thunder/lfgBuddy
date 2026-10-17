@@ -12,10 +12,12 @@ services:
     restart: unless-stopped
     environment:
       - PORT=3000
+    # Domain and Traefik cert resolver come from .env (git-ignored; see
+    # .env.example) — compose refuses to start without them.
     labels:
       - 'traefik.enable=true'
-      - 'traefik.http.routers.lfg-buddy.rule=Host(`lfg.example.com`)'
-      - 'traefik.http.routers.lfg-buddy.tls.certresolver=letsencrypt'
+      - 'traefik.http.routers.lfg-buddy.rule=Host(`${LFG_HOST:?set LFG_HOST in .env}`)'
+      - 'traefik.http.routers.lfg-buddy.tls.certresolver=${LFG_CERT_RESOLVER:?set LFG_CERT_RESOLVER in .env}'
       - 'traefik.http.services.lfg-buddy.loadbalancer.server.port=3000'
 
 networks:

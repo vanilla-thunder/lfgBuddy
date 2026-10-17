@@ -9,8 +9,9 @@ guided-mode-aware unless stated otherwise.
 | 1 | [Drawing pane](#1-drawing-pane) | Done |
 | 2 | [Interactive areas grouping](#2-interactive-areas-grouping) | Done |
 | 3 | [Ready check](#3-ready-check) | Done |
-| 4 | [Countdown timer](#4-countdown-timer) | Planned |
-| 5 | [External picture via URL](#5-external-picture-via-url) | Planned |
+| 4 | [Electron app auto-update](#4-electron-app-auto-update) | Planned |
+| 5 | [Countdown timer](#5-countdown-timer) | Planned |
+| 6 | [External picture via URL](#6-external-picture-via-url) | Planned |
 
 ---
 
@@ -49,17 +50,52 @@ everyone sees when all are ready.
 - **Lifetime:** no timeout. The check stays open until every member has
   answered, or an admin aborts it.
 
-- **Web:** each member's answer is shown next to their name in the member
-  list (e.g. ✅ / ❌ / ⏳ pending), so it's clear *who* isn't ready yet.
-- **Electron overlay:** no member list there, so it shows a compact tally
-  ("4/6 ready") plus its own Ready / Not ready buttons.
+- **View (both clients):** while a check runs, it replaces the board: every
+  member as a big card with their answer (✅ / ❌ / ⏳ pending), and below them
+  big, fully opaque Ready / Not ready buttons for your own answer. The result
+  stays on the same view for 6 s, then the board returns. The web member
+  list also shows the answers; the locked overlay shows "Press F9 to answer".
+- **Hidden overlay:** brought up (without focus) while a check waits for
+  your answer, and returned to its previous state afterwards.
 - **Server:** stores answers per member for the running check and sends them
   with the existing per-client `members` list (names and flags only, never
   client IDs). Members joining mid-check count as pending; members leaving
   (after the reconnect grace period) drop out of the tally — which can
   complete the check if everyone remaining has answered.
 
-## 4. Countdown timer
+## 4. Electron app auto-update
+
+The overlay updates itself instead of every user installing new versions by
+hand — needed because server protocol changes (e.g. the admin/ready-check
+changes) break older overlays.
+
+- **Approach:** package the app with `electron-builder` (an NSIS installer for
+  Windows — there's no packaging setup yet) and update via `electron-updater`
+  from GitHub Releases: check on start (and periodically), download in the
+  background.
+- **Silent updates (decided):** no prompt and never a restart mid-game — the
+  downloaded update installs silently when the app quits and is active on
+  the next start.
+- **Code signing (decided: unsigned for now):** no certificate yet, so
+  installers ship unsigned. Consequences: Windows SmartScreen warns on the
+  first install ("More info → Run anyway"), and `electron-updater` can't
+  verify a publisher signature — integrity then rests on HTTPS plus the
+  SHA-512 hashes in the release's `latest.yml`, i.e. on whoever controls the
+  release repo (protect that GitHub account with 2FA). Signing can be added
+  later without changing the update flow. Options for a certificate: Azure
+  Artifact Signing (~$10/month, but individuals only in US/Canada — EU
+  organizations qualify) or an OV certificate from a CA such as Certum or
+  Sectigo (~€50–300/year, key in the CA's cloud or on a hardware token).
+- **Release source:** the source repo is private; a private repo would need
+  an access token inside the app, which anyone could extract. Either make
+  the source repo public (the production server URL must move out of the
+  repo first — and out of its git history) or publish releases to a
+  separate public releases-only repo, which `electron-updater` supports.
+
+Open question:
+- Public source repo, or a separate public releases repo?
+
+## 5. Countdown timer
 
 Admin starts a countdown (e.g. 5 s / 10 s / custom); all clients show it in
 sync.
@@ -68,7 +104,7 @@ Notes:
 - Server stores the end time and broadcasts the remaining duration; clients
   count down locally — no per-second broadcasts, robust against clock skew.
 
-## 5. External picture via URL
+## 6. External picture via URL
 
 Show a picture from an arbitrary URL (e.g. a custom strat map) to the room.
 
