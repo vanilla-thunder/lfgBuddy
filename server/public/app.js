@@ -98,12 +98,13 @@ function adminLinkFor(code, adminToken) {
   return `${inviteLinkFor(code)}#admin=${adminToken}`;
 }
 
-// Deep link handled by the Electron overlay (see parseJoinLink in main.js),
-// which re-validates it — it only ever carries the room (plus, for admins,
-// the admin token so their own overlay becomes admin too), never a server.
+// Deep link for the Electron overlay: this page's invite link with
+// lfgbuddy:// instead of https:// (see parseJoinLink in main.js, which
+// re-validates it and asks before using a server for the first time). For
+// admins it carries the admin token, so their own overlay becomes admin too.
 function appLinkFor(code, adminToken) {
-  const link = `lfgbuddy://join${invitePathFor(code)}`;
-  return adminToken ? `${link}?admin=${adminToken}` : link;
+  const link = `lfgbuddy://${location.host}${invitePathFor(code)}`;
+  return adminToken ? `${link}#admin=${adminToken}` : link;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

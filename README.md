@@ -39,7 +39,7 @@ The first client to join a room becomes its **admin** (if all admins disconnect,
 - **Web:** the **Admin Link** button copies `<invite link>#admin=<token>`; open it on the other device (send it to yourself). **Admin QR** shows the same link as a QR code to scan with the phone instead. **Open in App** also carries the token for admins, so the admin's own overlay joins as admin.
 - **Electron overlay:** **Copy Admin Link** / **Admin QR** (above *Leave Room*, interactive mode) copy or show the same web link for the overlay's server.
 - The QR popup (`shared/admin-qr.js`) warns that anyone scanning it becomes admin, closes itself after 60 s, and in the overlay also when it's locked (F9) — the overlay is often on a streamed screen. It's drawn on a canvas with the vendored [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) 2.0.4 (`shared/vendor/`, MIT), so no external service ever sees the link.
-- `lfgbuddy://join/<code>?admin=<token>` links make the overlay join as admin.
+- `lfgbuddy://<server>/<code>#admin=<token>` links (see [Server & links](#server--links)) make the overlay join as admin.
 
 Each room has one random 128-bit admin token, created with the room and valid for its lifetime; anyone who has the link is an admin, so share it only with yourself. It travels in the URL fragment (never sent in HTTP requests, so it's not in server or proxy logs) and is removed from the address bar after joining.
 
@@ -98,11 +98,49 @@ Before the first start, copy `.env.example` to `.env` (git-ignored) and set `LFG
 ```bash
 # from repo root
 npm install
-npm run prod     # production — connects to the server in app-config.json
-npm run client   # development — connects to http://localhost:3000
+npm run prod     # production mode
+npm run client   # development — server field pre-filled with http://localhost:3000
 ```
 
-The production server URL is not in the repo: copy `app-config.example.json` to `app-config.json` (git-ignored) and set `serverUrl`. It must be `https` (plain `http` only for localhost); without a valid one the production overlay shows an error and quits. Dev mode always uses `http://localhost:3000`. The URL is fixed per mode in `main.js` and handed to the preload — the renderer can't choose the server. On launch a setup panel appears; enter a room code and click **Connect**. `lfgbuddy://` links always launch in production mode unless the overlay is already running in dev mode.
+On launch a setup panel appears: enter the server, your name and a room code, and click **Connect** (or just open an app link).
+
+### Server & links
+
+The overlay works with **any** sync server — nothing is built into the app. The server comes from an app link or the setup screen's **Server** field (remembered; `lfg.example.com` means `https://lfg.example.com`, a pasted invite link works too).
+
+App links are the web invite links with `lfgbuddy://` instead of `https://` — the web version's **Open in App** builds them:
+
+| Web | App |
+|---|---|
+| `https://lfg.example.com/oida` | `lfgbuddy://lfg.example.com/oida` |
+| `https://lfg.example.com/oida#admin=<token>` | `lfgbuddy://lfg.example.com/oida#admin=<token>` |
+| `http://localhost:3000/oida` | `lfgbuddy://localhost:3000/oida` (localhost uses `http`) |
+
+Safety, since any website can fire `lfgbuddy://` links (all in `main.js` → `requestJoin`):
+
+- **https only** — plain `http` just for localhost; no credentials, real hostnames only (the old `lfgbuddy://join/<code>` form is rejected).
+- **Confirmation for new servers:** the first time a server is used, the overlay asks *"Connect to lfg.example.com?"*; confirmed servers are remembered (`trusted-servers.json` in the app's data folder). A link alone can never send the overlay to a stranger's server. Dev mode trusts `localhost:3000`.
+- **A separate client ID per server** (client IDs are credentials), so no server ever learns the ID used on another.
+- The preload refuses sockets to untrusted servers, and the overlay's CSP only allows images from trusted servers (trusting a new one reloads the page once).
+
+`lfgbuddy://` links launch the overlay in production mode unless it's already running in dev mode.
+
+### Releases & auto-update
+
+The installed overlay updates itself **silently**: it checks this repo's GitHub Releases on start and every 4 hours, downloads in the background, and installs when the app quits — never a prompt or restart mid-game. Only packaged production builds update (`updater.js`); dev mode and runs from source never do. A log is kept in `%APPDATA%\lfg-buddy\updater.log`.
+
+Installers aren't Authenticode-signed (Windows SmartScreen warns on the first install: *More info → Run anyway*). Instead every release is signed with **Sigstore** by the release workflow (a GitHub build-provenance attestation, uploaded as `update.sigstore.json`), and the app only installs an update if that signature verifies, was made by `.github/workflows/release.yml` of the repo in `package.json` → `build.publish` for exactly that version's tag, and covers the downloaded installer's SHA-256. Anything else — missing/invalid signature, other signer, tampered file — is discarded before it can be installed (fail-closed).
+
+Cutting a release:
+
+1. Bump `version` in `package.json`, commit, push.
+2. `git tag vX.Y.Z && git push origin vX.Y.Z` — the workflow builds, signs and publishes the release.
+
+Nothing deployment-specific goes into a build — one installer works with every server. Local build without publishing: `npm run dist` (output in `dist/`).
+
+**Forks:** change `build.publish` (owner/repo) and `appId` in `package.json`; the update source and the expected signer follow automatically. Forks that only host their own server don't need their own app at all.
+
+The installed app and `npm run client` share the same data folder (`%APPDATA%\lfg-buddy`: name, room, window position) and single-instance lock, so only one of them runs at a time.
 
 ### Hotkeys
 
@@ -199,7 +237,7 @@ Ungrouped areas behave as before. The server enforces both modes in `set-icon`, 
 
 `x`/`y`/`w`/`h` are absolute px offsets from the encounter image's edges (not percentages, and not affected by how large the image renders). `x`/`y` ≥ 0 anchor from the left/top edge; negative `x`/`y` anchor from the right/bottom edge instead (e.g. `x: -5` = 5px from the right edge), so an area can stay pinned to a corner. `w`/`h` are always the area's pixel width/height. `server/activities/index.js` discovers every subdirectory with an `activity.js` at startup, rewrites each `image`/`svg`/`thumbnail` filename into its served URL (`/activities/<id>/images/<file>`), validates `type` against `['dungeon', 'raid']` (throwing at startup if it's set to anything else), builds the validation lookups `set-icon`/`toggle-svg` use, and mounts one static route per activity so its `images/` folder is servable — `server/index.js` itself only knows the room/socket protocol, not activity content.
 
-The manifest is pushed to clients over the socket connection (`activities-manifest` event) on connect, so no separate HTTP fetch or CORS setup is needed — the Electron overlay's CSP is sent by `main.js` and only allows images from the one server the overlay is connected to (dev: localhost, prod: `app-config.json`).
+The manifest is pushed to clients over the socket connection (`activities-manifest` event) on connect, so no separate HTTP fetch or CORS setup is needed — the Electron overlay's CSP is sent by `main.js` and only allows images from servers you've confirmed (see [Server & links](#server--links)).
 
 ---
 
@@ -209,6 +247,8 @@ The manifest is pushed to clients over the socket connection (`activities-manife
 lfgBuddy/
 ├── main.js               # Electron main process — window, hotkeys
 ├── preload.js            # contextBridge: exposes Socket.io API to renderer
+├── updater.js            # Silent, Sigstore-verified auto-update (packaged prod builds)
+├── .github/workflows/release.yml  # Tag → build, Sigstore-sign, publish release
 ├── shared/               # Client code used by both clients (served at /shared/)
 │   ├── drawing.js        # Drawing board: toolbar, canvas, pointer input
 │   ├── admin-qr.js       # Admin link QR popup

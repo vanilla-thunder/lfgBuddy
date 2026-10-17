@@ -5,9 +5,13 @@ const fs = require('fs');
 const path = require('path');
 
 let mainWindow;
-// { code, adminToken } from an lfgbuddy:// link that arrived before the
-// page could receive it (cold start); delivered on did-finish-load.
+// { server, code, adminToken } join request (from an lfgbuddy:// link or the
+// setup screen) that arrived while the page wasn't ready — cold start, or
+// the reload after trusting a new server; handled on did-finish-load.
 let pendingJoin = null;
+// True between did-finish-load and the next load start. (isLoading() is
+// still true inside did-finish-load, so it can't gate the retry there.)
+let pageReady = false;
 // Starts interactive so the user can connect/pick an activity right away;
 // F9 switches to click-through.
 let isInteractive = true;
@@ -15,51 +19,75 @@ let isInteractive = true;
 // return to (hidden, plus the interactive mode it had) once answered.
 let readyCheckRestore = null;
 
-// `npm run client` (electron . --dev) targets a local server; everything
-// else, including protocol-link launches, targets production — whose URL
-// comes from app-config.json (git-ignored; see app-config.example.json), so
-// the repo carries no deployment URL and forks just set their own. The URL
-// is fixed here and handed to preload — the renderer can't choose the
-// server.
-const DEV_SERVER_URL = 'http://localhost:3000';
-const CONFIG_FILE = path.join(__dirname, 'app-config.json');
+// The overlay works with any sync server — the server comes from the
+// lfgbuddy:// link or the setup screen, nothing is baked into the app.
+// Every join goes through requestJoin() here: the server must be https
+// (plain http only for localhost), and a server the user hasn't connected
+// to before needs a one-time confirmation — any website can fire lfgbuddy://
+// links, so a link alone must never send the overlay to a stranger's
+// server. The renderer additionally uses a separate client ID per server
+// (client IDs are credentials), and preload refuses untrusted servers.
+// `npm run client` (--dev) pre-fills and trusts the local dev server.
 const MODE = process.argv.includes('--dev') ? 'dev' : 'prod';
+const DEV_SERVER = 'http://localhost:3000';
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 
-// Origin of a configured server URL, or null if unusable: https only —
-// plain http just for localhost — so room traffic (incl. admin tokens) is
-// never sent unencrypted over a network.
+// Origin of a server URL, or null if unusable: http(s) only, https unless
+// localhost, no credentials, and a real hostname (dotted, or localhost).
+// Input without a scheme ("lfg.example.com") means https (http for
+// localhost); a full invite link works too — only its origin is used.
 function serverOrigin(raw) {
+  let input = String(raw ?? '').trim();
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(input)) {
+    const host = input.split(/[/?#]/)[0].replace(/:\d+$/, '').toLowerCase();
+    input = `${LOCAL_HOSTS.includes(host) ? 'http' : 'https'}://${input}`;
+  }
   let url;
   try {
-    url = new URL(raw);
+    url = new URL(input);
   } catch {
     return null;
   }
-  const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if (url.username || url.password) return null;
+  const isLocal = LOCAL_HOSTS.includes(url.hostname);
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLocal)) return null;
+  if (!isLocal && !url.hostname.includes('.')) return null;
   return url.origin;
 }
 
-function loadServerUrl() {
-  if (MODE === 'dev') return DEV_SERVER_URL;
-  let config;
+// Servers the user has confirmed once (persisted), plus the dev server in
+// dev mode. They're also the only image sources the CSP allows.
+const TRUSTED_SERVERS_FILE = path.join(app.getPath('userData'), 'trusted-servers.json');
+const trustedServers = new Set();
+
+function loadTrustedServers() {
   try {
-    config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    for (const entry of JSON.parse(fs.readFileSync(TRUSTED_SERVERS_FILE, 'utf8'))) {
+      const origin = serverOrigin(entry);
+      if (origin) trustedServers.add(origin);
+    }
   } catch {
-    return null;
+    // none yet, or unreadable — start empty
   }
-  return serverOrigin(config?.serverUrl);
+  if (MODE === 'dev') trustedServers.add(DEV_SERVER);
 }
 
-const SERVER_URL = loadServerUrl();
+function trustServer(origin) {
+  trustedServers.add(origin);
+  try {
+    fs.writeFileSync(TRUSTED_SERVERS_FILE, JSON.stringify([...trustedServers].filter((o) => o !== DEV_SERVER || MODE !== 'dev')));
+  } catch (err) {
+    console.error('Could not save trusted servers:', err);
+  }
+}
 
-// The overlay page's CSP, sent as a response header so it can name the
-// configured server — a <meta> CSP is static, and a second one could only
-// narrow it. Images may only come from that one server; scripts and styles
-// only from the app itself.
+// The overlay page's CSP, sent as a response header (built per page load)
+// so it can name the trusted servers — a <meta> CSP is static, and a second
+// one could only narrow it. Images only from trusted servers; scripts and
+// styles only from the app itself. Trusting a new server reloads the page.
 function installContentSecurityPolicy() {
-  const csp = `default-src 'self'; style-src 'self'; img-src 'self' ${SERVER_URL}`;
   session.defaultSession.webRequest.onHeadersReceived({ urls: ['file:///*'] }, (details, callback) => {
+    const csp = `default-src 'self'; style-src 'self'; img-src 'self' ${[...trustedServers].join(' ')}`;
     callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [csp] } });
   });
 }
@@ -73,16 +101,24 @@ function applyInteractive() {
   mainWindow.webContents.send('toggle-interactive', isInteractive);
 }
 
-// lfgbuddy://join/<room-code>[?admin=<token>] — same code rules as the web
-// invite links (server/public/app.js). Only the room code (and an optional
-// admin token for that room) is taken from the link, never a server URL: any
-// website can fire this protocol, and letting it pick the server would let
-// it redirect the overlay to an attacker-controlled host. A forged admin
-// token is harmless — at worst it's rejected, or makes you admin of a room
-// the link's author already controls.
+// lfgbuddy://<server-host[:port]>/<room-code>[#admin=<token>] — the web
+// invite link with lfgbuddy:// instead of https:// (http:// for localhost),
+// same code rules (server/public/app.js). A forged admin token is harmless —
+// at worst it's rejected, or makes you admin of a room the link's author
+// already controls; the server itself still needs the user's confirmation
+// (requestJoin).
 const PROTOCOL = 'lfgbuddy';
 const ROOM_CODE_RE = /^[A-Za-z0-9_-]{1,32}$/;
 const ADMIN_TOKEN_RE = /^[0-9a-f]{32}$/;
+
+function parseRoomCode(raw) {
+  const code = String(raw ?? '').trim();
+  return ROOM_CODE_RE.test(code) ? code.toUpperCase() : null;
+}
+
+function parseAdminToken(raw) {
+  return ADMIN_TOKEN_RE.test(raw ?? '') ? raw : null;
+}
 
 function parseJoinLink(raw) {
   let url;
@@ -91,18 +127,24 @@ function parseJoinLink(raw) {
   } catch {
     return null;
   }
-  if (url.protocol !== `${PROTOCOL}:` || url.hostname !== 'join') return null;
+  if (url.protocol !== `${PROTOCOL}:` || url.username || url.password) return null;
+
+  // A custom scheme's host isn't normalized or validated by the URL parser;
+  // serverOrigin() re-parses it as an http(s) host, which does both.
+  const isLocal = LOCAL_HOSTS.includes(url.hostname.toLowerCase());
+  const server = serverOrigin(`${isLocal ? 'http' : 'https'}://${url.host}`);
 
   let code;
   try {
-    code = decodeURIComponent(url.pathname.replace(/^\/+|\/+$/g, ''));
+    code = parseRoomCode(decodeURIComponent(url.pathname.replace(/^\/+|\/+$/g, '')));
   } catch {
     return null;
   }
-  if (!ROOM_CODE_RE.test(code)) return null;
+  if (!server || !code) return null;
 
-  const adminToken = url.searchParams.get('admin');
-  return { code: code.toUpperCase(), adminToken: ADMIN_TOKEN_RE.test(adminToken ?? '') ? adminToken : null };
+  // #admin=… like the web admin link; ?admin=… accepted too.
+  const adminToken = new URLSearchParams(url.hash.slice(1)).get('admin') ?? url.searchParams.get('admin');
+  return { server, code, adminToken: parseAdminToken(adminToken) };
 }
 
 // Windows passes the link as a plain argv entry (cold start and
@@ -114,13 +156,37 @@ function findJoinLink(argv) {
   return null;
 }
 
-function joinRoom(join) {
-  if (!mainWindow || mainWindow.webContents.isLoading()) {
+// Single entry point for every join (protocol link or setup screen).
+// Trusted server → tell the renderer to connect. New server → ask once; on
+// yes, trust it and reload the page (the CSP is per page load, so its
+// images are only allowed after that), then join.
+async function requestJoin(join) {
+  if (!mainWindow || !pageReady) {
     pendingJoin = join;
     return;
   }
-  mainWindow.webContents.send('join-room', join);
   if (!mainWindow.isVisible()) mainWindow.showInactive();
+
+  if (!trustedServers.has(join.server)) {
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      buttons: ['Connect', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'LFG Buddy',
+      message: `Connect to ${new URL(join.server).host}?`,
+      detail: 'This server hasn\u2019t been used before. Only connect to servers you trust — they see your name and everything you do in the room.',
+    });
+    if (response !== 0) {
+      mainWindow.webContents.send('join-failed', 'Connection cancelled.');
+      return;
+    }
+    trustServer(join.server);
+    pendingJoin = join;
+    mainWindow.webContents.reload();
+    return;
+  }
+  mainWindow.webContents.send('join-room', join);
 }
 
 // Window size/position from the last session, kept in the per-user app data
@@ -177,7 +243,7 @@ function createWindow() {
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      additionalArguments: [`--lfg-server=${SERVER_URL}`],
+      additionalArguments: MODE === 'dev' ? [`--lfg-default-server=${DEV_SERVER}`] : [],
       contextIsolation: true,
       nodeIntegration: false,
       // Electron defaults preload scripts to the sandbox, which restricts
@@ -198,11 +264,16 @@ function createWindow() {
   mainWindow.on('close', saveBounds);
   // The renderer defaults to locked, so sync it with the initial mode once
   // the page (and its IPC listener) is loaded — also covers reloads.
+  mainWindow.webContents.on('did-start-loading', () => {
+    pageReady = false;
+  });
   mainWindow.webContents.on('did-finish-load', () => {
+    pageReady = true;
     applyInteractive();
     if (pendingJoin) {
-      mainWindow.webContents.send('join-room', pendingJoin);
+      const join = pendingJoin;
       pendingJoin = null;
+      requestJoin(join);
     }
   });
 
@@ -221,7 +292,7 @@ if (!gotInstanceLock) app.quit();
 
 app.on('second-instance', (_event, argv) => {
   const join = findJoinLink(argv);
-  if (join) joinRoom(join);
+  if (join) requestJoin(join);
 });
 
 // When run unpackaged (`electron .`) Windows must launch electron.exe with
@@ -237,13 +308,13 @@ pendingJoin = findJoinLink(process.argv);
 app.whenReady().then(() => {
   // app.quit() is async — don't open a window in the instance that's exiting.
   if (!gotInstanceLock) return;
-  if (!SERVER_URL) {
-    dialog.showErrorBox('LFG Buddy', `No valid server URL configured.\n\nCreate ${CONFIG_FILE} with\n{ "serverUrl": "https://your-server.example" }\n(see app-config.example.json; https required except for localhost).`);
-    app.quit();
-    return;
-  }
+  loadTrustedServers();
   installContentSecurityPolicy();
   createWindow();
+
+  // Silent, Sigstore-verified updates — only for the installed production
+  // app (see updater.js); never in dev or when run from source.
+  if (app.isPackaged && MODE === 'prod') require('./updater').startAutoUpdate();
 
   // F9 — toggle between interactive and click-through
   globalShortcut.register('F9', () => {
@@ -258,6 +329,26 @@ app.whenReady().then(() => {
     } else {
       mainWindow.showInactive();
     }
+  });
+
+  // Join from the setup screen: same validation and trust flow as links.
+  ipcMain.on('request-join', (_event, raw) => {
+    const server = serverOrigin(raw?.server);
+    const code = parseRoomCode(raw?.code);
+    if (!server) {
+      mainWindow.webContents.send('join-failed', 'Invalid server — use https:// (http only for localhost).');
+      return;
+    }
+    if (!code) {
+      mainWindow.webContents.send('join-failed', 'Invalid room code.');
+      return;
+    }
+    requestJoin({ server, code, adminToken: parseAdminToken(raw?.adminToken) });
+  });
+
+  // preload only opens sockets to servers trusted here.
+  ipcMain.on('is-trusted-server', (event, origin) => {
+    event.returnValue = trustedServers.has(origin);
   });
 
   // Room-admin visibility toggle, relayed from the web room-admin session via

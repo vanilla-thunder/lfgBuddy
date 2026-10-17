@@ -1,13 +1,25 @@
 'use strict';
 
-// Persistent client ID — survives restarts, unique per machine
-const clientId = localStorage.getItem('lfg_client_id') || (() => {
-  const id = crypto.randomUUID();
-  localStorage.setItem('lfg_client_id', id);
-  return id;
-})();
+// Persistent client ID per server (origin -> id). Client IDs act as
+// credentials (admin rights), so no server ever learns the ID used on
+// another one.
+function clientIdFor(server) {
+  let ids;
+  try {
+    ids = JSON.parse(localStorage.getItem('lfg_client_ids')) ?? {};
+  } catch {
+    ids = {};
+  }
+  if (!ids[server]) {
+    ids[server] = crypto.randomUUID();
+    localStorage.setItem('lfg_client_ids', JSON.stringify(ids));
+  }
+  return ids[server];
+}
+localStorage.removeItem('lfg_client_id'); // pre-per-server single ID
 
-const serverUrl = window.lfg.serverUrl.replace(/\/+$/, '');
+// Origin of the server we're connected to (set by main.js via join-room).
+let currentServer = '';
 let state = { activityId: null, encounterIndex: 0, encounters: {}, isAdmin: false, adminToken: null, guidedMode: false, overlayVisible: true };
 let manifest = { activities: [] };
 let isInteractive = false;
@@ -17,6 +29,7 @@ let isInteractive = false;
 const setupScreen       = document.getElementById('setup-screen');
 const overlayScreen     = document.getElementById('overlay-screen');
 const statusBar         = document.getElementById('status-bar');
+const serverInput       = document.getElementById('server-url');
 const nameInput         = document.getElementById('player-name');
 const roomCodeInput     = document.getElementById('room-code');
 const connectBtn        = document.getElementById('connect-btn');
@@ -69,7 +82,7 @@ const readyView = createReadyCheckView({
 
 // ── Restore saved settings ────────────────────────────────────────────────────
 
-localStorage.removeItem('lfg_server'); // no longer user-configurable
+serverInput.value = localStorage.getItem('lfg_server') || window.lfg.defaultServer;
 nameInput.value = localStorage.getItem('lfg_name') || '';
 roomCodeInput.value = localStorage.getItem('lfg_room') || '';
 
@@ -85,7 +98,7 @@ function setStatus(msg, type = '') {
 }
 
 function assetUrl(path) {
-  return `${serverUrl}${path}`;
+  return `${currentServer}${path}`;
 }
 
 // ── Activity / encounter model ───────────────────────────────────────────────
@@ -454,28 +467,37 @@ document.addEventListener('click', (e) => {
 
 // Every member needs a display name; it's remembered for next time (the
 // server sanitizes it again). The member list itself is web-only.
-function connectToRoom() {
+function readName() {
   const name = nameInput.value.trim();
-  const code = roomCodeInput.value.trim().toUpperCase();
-
   if (!name) {
     setStatus('Enter your name to join.', 'error');
     nameInput.focus();
+    return null;
+  }
+  localStorage.setItem('lfg_name', name);
+  return name;
+}
+
+// Setup screen → main.js, which validates the server (https only, except
+// localhost), asks once for servers not used before, and answers via
+// join-room / join-failed.
+function connectToRoom() {
+  const server = serverInput.value.trim();
+  const code = roomCodeInput.value.trim().toUpperCase();
+  if (!server) {
+    setStatus('Server is required.', 'error');
+    serverInput.focus();
     return;
   }
+  if (!readName()) return;
   if (!code) {
     setStatus('Room code is required.', 'error');
     return;
   }
 
-  localStorage.setItem('lfg_name', name);
-  localStorage.setItem('lfg_room', code);
-
   setStatus('Connecting…', 'info');
   connectBtn.disabled = true;
-
-  window.lfg.connect(code, clientId, pendingAdminToken, name);
-  pendingAdminToken = null;
+  window.lfg.requestJoin({ server, code, adminToken: pendingAdminToken });
 }
 
 function leaveRoom() {
@@ -495,23 +517,46 @@ function leaveRoom() {
 connectBtn.addEventListener('click', () => connectToRoom());
 disconnectBtn.addEventListener('click', leaveRoom);
 
-// lfgbuddy://join/<code>[?admin=<token>] link (validated in main.js) —
-// joins on the mode's fixed server, leaving the current room first if
-// already in one.
-window.lfg.onJoinRoom((code, adminToken) => {
+// A join approved by main.js — from the setup screen, or an
+// lfgbuddy://<server>/<code>[#admin=<token>] link — on a trusted server.
+// Leaves the current room first if already in one. Without a name yet, the
+// setup screen is filled in and the admin token kept for the next connect.
+window.lfg.onJoinRoom(({ server, code, adminToken }) => {
   if (!overlayScreen.classList.contains('hidden')) leaveRoom();
+  serverInput.value = server;
   roomCodeInput.value = code;
-  pendingAdminToken = adminToken;
-  connectToRoom();
+  if (adminToken) pendingAdminToken = adminToken;
+  const name = readName();
+  if (!name) {
+    connectBtn.disabled = false;
+    return;
+  }
+
+  currentServer = server;
+  localStorage.setItem('lfg_server', server);
+  localStorage.setItem('lfg_room', code);
+  setStatus('Connecting…', 'info');
+  connectBtn.disabled = true;
+  if (!window.lfg.connect(server, code, clientIdFor(server), pendingAdminToken, name)) {
+    setStatus('Server not trusted.', 'error');
+    connectBtn.disabled = false;
+    return;
+  }
+  pendingAdminToken = null;
+});
+
+window.lfg.onJoinFailed((message) => {
+  setStatus(message, 'error');
+  connectBtn.disabled = false;
 });
 
 // Admin link for another device of this admin (e.g. a phone): the web
-// invite link on this mode's server plus the room's admin token. The token
+// invite link on the current server plus the room's admin token. The token
 // goes in the fragment, so it never shows up in HTTP requests or logs.
 function adminLink() {
   const code = localStorage.getItem('lfg_room');
-  if (!code || !state.adminToken) return null;
-  return `${serverUrl}/${encodeURIComponent(code.toLowerCase())}#admin=${state.adminToken}`;
+  if (!currentServer || !code || !state.adminToken) return null;
+  return `${currentServer}/${encodeURIComponent(code.toLowerCase())}#admin=${state.adminToken}`;
 }
 
 copyAdminLinkBtn.addEventListener('click', () => {

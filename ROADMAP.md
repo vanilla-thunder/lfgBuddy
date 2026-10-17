@@ -9,7 +9,7 @@ guided-mode-aware unless stated otherwise.
 | 1 | [Drawing pane](#1-drawing-pane) | Done |
 | 2 | [Interactive areas grouping](#2-interactive-areas-grouping) | Done |
 | 3 | [Ready check](#3-ready-check) | Done |
-| 4 | [Electron app auto-update](#4-electron-app-auto-update) | Planned |
+| 4 | [Electron app auto-update](#4-electron-app-auto-update) | Done |
 | 5 | [Countdown timer](#5-countdown-timer) | Planned |
 | 6 | [External picture via URL](#6-external-picture-via-url) | Planned |
 
@@ -86,14 +86,14 @@ changes) break older overlays.
   Artifact Signing (~$10/month, but individuals only in US/Canada — EU
   organizations qualify) or an OV certificate from a CA such as Certum or
   Sectigo (~€50–300/year, key in the CA's cloud or on a hardware token).
-- **Release source:** the source repo is private; a private repo would need
-  an access token inside the app, which anyone could extract. Either make
-  the source repo public (the production server URL must move out of the
-  repo first — and out of its git history) or publish releases to a
-  separate public releases-only repo, which `electron-updater` supports.
-
-Open question:
-- Public source repo, or a separate public releases repo?
+- **Release source (decided):** this repo, now public; releases are built,
+  Sigstore-signed and published by `.github/workflows/release.yml` on a
+  version tag, and verified by the app before installing (`updater.js`).
+- **No server built in:** the overlay works with any server — it comes from
+  `lfgbuddy://<server>/<code>` links (the web invite link with `lfgbuddy://`)
+  or the setup screen, with a one-time confirmation per new server and a
+  separate client ID per server — so one installer serves every server and
+  fork.
 
 ## 5. Countdown timer
 

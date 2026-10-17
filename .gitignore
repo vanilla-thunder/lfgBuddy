@@ -1,6 +1,7 @@
 node_modules/
 .idea/
 .claude/settings.local.json
-# Deployment-specific config — see .env.example / app-config.example.json
+# Deployment-specific config — see .env.example
 .env
-app-config.json
+# electron-builder output
+dist/

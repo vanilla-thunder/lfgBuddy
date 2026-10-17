@@ -1,0 +1,76 @@
+name: Release
+
+# Builds the Windows overlay installer for a version tag (vX.Y.Z), signs it
+# with Sigstore via a GitHub build-provenance attestation, and publishes it as
+# a GitHub release — the source of the overlay's auto-updates. updater.js
+# only installs an update whose signature was made by exactly this workflow
+# file for exactly that tag, so keep the file name in sync with
+# RELEASE_WORKFLOW there.
+#
+# Release: bump "version" in package.json, commit, then
+#   git tag vX.Y.Z && git push origin vX.Y.Z
+# The app has no server built in (servers come from lfgbuddy:// links or the
+# setup screen), so nothing deployment-specific is needed here.
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: write      # create the release
+  id-token: write      # Sigstore keyless signing (GitHub OIDC identity)
+  attestations: write  # store the attestation
+
+concurrency: release-${{ github.ref }}
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      # Third-party actions pinned to full commit SHAs (tags can be moved).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Check tag matches package.json version
+        id: version
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - run: npm ci
+
+      - name: Build installer
+        run: npm run dist
+
+      - name: Sign with Sigstore (build provenance attestation)
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/LFG-Buddy-Setup-${{ steps.version.outputs.version }}.exe
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cp "$BUNDLE_PATH" dist/update.sigstore.json
+          gh release create "$GITHUB_REF_NAME" \
+            --title "LFG Buddy $GITHUB_REF_NAME" \
+            --generate-notes \
+            "dist/LFG-Buddy-Setup-$VERSION.exe" \
+            "dist/LFG-Buddy-Setup-$VERSION.exe.blockmap" \
+            dist/latest.yml \
+            dist/update.sigstore.json

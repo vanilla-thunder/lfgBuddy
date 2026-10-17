@@ -3,8 +3,9 @@
 const { clipboard, contextBridge, ipcRenderer } = require('electron');
 const { io } = require('socket.io-client');
 
-const SERVER_ARG = '--lfg-server=';
-const serverUrl = process.argv.find((a) => a.startsWith(SERVER_ARG))?.slice(SERVER_ARG.length) ?? '';
+// Pre-fill for the setup screen's server field (dev mode: local server).
+const DEFAULT_SERVER_ARG = '--lfg-default-server=';
+const defaultServer = process.argv.find((a) => a.startsWith(DEFAULT_SERVER_ARG))?.slice(DEFAULT_SERVER_ARG.length) ?? '';
 
 let socket = null;
 const eventListeners = {};
@@ -18,15 +19,24 @@ function attachListeners(sock) {
 }
 
 contextBridge.exposeInMainWorld('lfg', {
-  serverUrl,
+  defaultServer,
 
-  connect(roomId, clientId, adminToken = null, name = '') {
+  // Asks main.js to join (validation + one-time trust confirmation for new
+  // servers); the answer arrives via onJoinRoom or onJoinFailed.
+  requestJoin({ server, code, adminToken = null }) {
+    ipcRenderer.send('request-join', { server: String(server), code: String(code), adminToken });
+  },
+
+  // Only to servers main.js trusts — the renderer can't open a socket to
+  // anything the user hasn't confirmed.
+  connect(server, roomId, clientId, adminToken = null, name = '') {
+    if (!ipcRenderer.sendSync('is-trusted-server', String(server))) return false;
     if (socket) {
       socket.removeAllListeners();
       socket.disconnect();
     }
 
-    socket = io(serverUrl, {
+    socket = io(String(server), {
       reconnection: true,
       reconnectionDelay: 2000,
       reconnectionAttempts: Infinity,
@@ -37,6 +47,7 @@ contextBridge.exposeInMainWorld('lfg', {
     });
 
     attachListeners(socket);
+    return true;
   },
 
   disconnect() {
@@ -62,7 +73,15 @@ contextBridge.exposeInMainWorld('lfg', {
   },
 
   onJoinRoom(callback) {
-    ipcRenderer.on('join-room', (_evt, join) => callback(String(join.code), join.adminToken ?? null));
+    ipcRenderer.on('join-room', (_evt, join) => callback({
+      server: String(join.server),
+      code: String(join.code),
+      adminToken: join.adminToken ?? null,
+    }));
+  },
+
+  onJoinFailed(callback) {
+    ipcRenderer.on('join-failed', (_evt, message) => callback(String(message)));
   },
 
   copyText(text) {
