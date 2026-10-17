@@ -37,6 +37,7 @@ mountStaticRoutes(app);
 //   members: Map<clientId, number>,  // open sockets per client
 //   leaveTimers: Map<clientId, Timeout>,
 //   names: Map<clientId, string>,     // display names, sanitized
+//   readyCheck: Map<clientId, boolean|null> | null,  // running check: answer per member (null = pending)
 //   adminClientIds: Set<clientId>,
 //   adminToken: string,  // secret in admin links; joining with it grants admin
 //   guidedMode: boolean,
@@ -107,6 +108,7 @@ function getOrCreateRoom(roomId) {
       members: new Map(),
       leaveTimers: new Map(),
       names: new Map(),
+      readyCheck: null,
       adminClientIds: new Set(),
       adminToken: crypto.randomBytes(16).toString('hex'),
       guidedMode: false,
@@ -170,14 +172,50 @@ function serializeRoom(room, clientId) {
 
 // Member list for one receiving client, in join order. `self` marks the
 // receiver's own entry; `online` is false during a member's reconnect grace
-// period.
+// period; `ready` is the member's ready-check answer ('ready' | 'not-ready'
+// | 'pending'), or null while no check is running.
 function serializeMembers(room, clientId) {
   return [...room.members].map(([memberId, sockets]) => ({
     name: room.names.get(memberId) ?? DEFAULT_NAME,
     isAdmin: isAdmin(room, memberId),
     online: sockets > 0,
     self: memberId === clientId,
+    ready: readyStatus(room, memberId),
   }));
+}
+
+// ── Ready check ──────────────────────────────────────────────────────────────
+// Started/aborted by admins only (regardless of guided mode); every member
+// answers. No timeout: it ends when every current member has answered —
+// members joining mid-check start as pending, members leaving (after their
+// grace period) drop out — or when an admin aborts it.
+
+function readyStatus(room, clientId) {
+  if (!room.readyCheck) return null;
+  const answer = room.readyCheck.get(clientId);
+  if (answer === true) return 'ready';
+  if (answer === false) return 'not-ready';
+  return 'pending';
+}
+
+function endReadyCheck(roomId, room, outcome) {
+  const answers = [...room.readyCheck.values()];
+  room.readyCheck = null;
+  io.to(roomId).emit('ready-check-done', {
+    outcome, // 'complete' | 'aborted'
+    ready: answers.filter((a) => a === true).length,
+    notReady: answers.filter((a) => a === false).length,
+    total: answers.length,
+  });
+}
+
+// Callers broadcast the members list (with the final answers) before this,
+// so clients' last snapshot of a running check is its result; and again
+// after it if it returns true (answers cleared).
+function completeReadyCheckIfAnswered(roomId, room) {
+  if (!room.readyCheck || [...room.readyCheck.values()].some((a) => a === null)) return false;
+  endReadyCheck(roomId, room, 'complete');
+  return true;
 }
 
 function forEachRoomSocket(roomId, fn) {
@@ -203,9 +241,23 @@ io.on('connection', (socket) => {
 
   socket.emit('activities-manifest', { activities: activityList });
 
+  // Registers a client event handler that always gets a plain object
+  // payload and can't take the process down: without this, one event sent
+  // with no/invalid payload (e.g. emit('set-guided-mode')) threw inside
+  // socket.io and crashed the server — every room for every user.
+  function on(event, handler) {
+    socket.on(event, (payload) => {
+      try {
+        handler(payload !== null && typeof payload === 'object' ? payload : {});
+      } catch (err) {
+        console.error(`[${currentRoomId ?? '-'}] ${event} handler failed:`, err);
+      }
+    });
+  }
+
   // One join per socket — clients reconnect (and switch rooms) with a new
   // socket, and a second join would unbalance the member's socket count.
-  socket.on('join', ({ roomId, clientId, adminToken, name }) => {
+  on('join', ({ roomId, clientId, adminToken, name }) => {
     if (!roomId || !clientId || currentRoomId) return;
 
     currentRoomId = String(roomId).toUpperCase().slice(0, 32);
@@ -221,6 +273,7 @@ io.on('connection', (socket) => {
     if (room.adminClientIds.size === 0 || isValidAdminToken(room, adminToken)) {
       room.adminClientIds.add(currentClientId);
     }
+    if (room.readyCheck && !room.readyCheck.has(currentClientId)) room.readyCheck.set(currentClientId, null);
 
     socket.emit('state-sync', serializeRoom(room, currentClientId));
     broadcastMembers(currentRoomId, room);
@@ -230,7 +283,7 @@ io.on('connection', (socket) => {
 
   // activityId: null clears the room back to the activity picker; any other
   // value must be a real, currently-active activity.
-  socket.on('select-activity', ({ activityId }) => {
+  on('select-activity', ({ activityId }) => {
     if (!currentRoomId) return;
     if (activityId !== null && !activitiesById.get(activityId)?.active) return;
     const room = rooms.get(currentRoomId);
@@ -241,7 +294,7 @@ io.on('connection', (socket) => {
     broadcastState(currentRoomId, room);
   });
 
-  socket.on('set-encounter', ({ encounterIndex }) => {
+  on('set-encounter', ({ encounterIndex }) => {
     if (!currentRoomId) return;
     const room = rooms.get(currentRoomId);
     const activity = activitiesById.get(room?.activityId);
@@ -252,7 +305,7 @@ io.on('connection', (socket) => {
     broadcastState(currentRoomId, room);
   });
 
-  socket.on('reset-encounter', () => {
+  on('reset-encounter', () => {
     if (!currentRoomId) return;
     const room = rooms.get(currentRoomId);
     if (!room || !canAct(room, currentClientId)) return;
@@ -263,7 +316,7 @@ io.on('connection', (socket) => {
     broadcastState(currentRoomId, room);
   });
 
-  socket.on('set-icon', ({ areaId, iconId }) => {
+  on('set-icon', ({ areaId, iconId }) => {
     if (!currentRoomId) return;
     const room = rooms.get(currentRoomId);
     if (!room || !room.activityId || !canAct(room, currentClientId)) return;
@@ -297,7 +350,7 @@ io.on('connection', (socket) => {
     io.to(currentRoomId).emit('icon-updated', { encounterId, areaId, iconId });
   });
 
-  socket.on('toggle-svg', ({ areaId }) => {
+  on('toggle-svg', ({ areaId }) => {
     if (!currentRoomId) return;
     const room = rooms.get(currentRoomId);
     if (!room || !room.activityId || !canAct(room, currentClientId)) return;
@@ -329,7 +382,7 @@ io.on('connection', (socket) => {
   // Relayed to everyone but the sender, which has already drawn the stroke
   // locally. Over-budget strokes are dropped; the client enforces the same
   // limits, and the next state-sync corrects any divergence.
-  socket.on('draw-stroke', (payload) => {
+  on('draw-stroke', (payload) => {
     const encounterState = drawableEncounterState(payload?.encounterId);
     if (!encounterState) return;
     const stroke = parseStroke(payload);
@@ -346,7 +399,7 @@ io.on('connection', (socket) => {
 
   // Removes every stroke of the given line. Relayed to everyone but the
   // sender, which has already removed it locally.
-  socket.on('erase-stroke', (payload) => {
+  on('erase-stroke', (payload) => {
     const encounterState = drawableEncounterState(payload?.encounterId);
     if (!encounterState) return;
     const { strokeId } = payload;
@@ -360,7 +413,7 @@ io.on('connection', (socket) => {
     socket.to(currentRoomId).emit('stroke-erased', { encounterId: payload.encounterId, strokeId });
   });
 
-  socket.on('clear-drawing', (payload) => {
+  on('clear-drawing', (payload) => {
     const encounterState = drawableEncounterState(payload?.encounterId);
     if (!encounterState) return;
 
@@ -369,7 +422,7 @@ io.on('connection', (socket) => {
     io.to(currentRoomId).emit('drawing-cleared', { encounterId: payload.encounterId });
   });
 
-  socket.on('set-image-hidden', (payload) => {
+  on('set-image-hidden', (payload) => {
     const encounterState = drawableEncounterState(payload?.encounterId);
     if (!encounterState) return;
 
@@ -380,9 +433,36 @@ io.on('connection', (socket) => {
     });
   });
 
+  on('start-ready-check', () => {
+    const room = rooms.get(currentRoomId);
+    if (!room || !isAdmin(room, currentClientId) || room.readyCheck) return;
+
+    room.readyCheck = new Map([...room.members.keys()].map((memberId) => [memberId, null]));
+    broadcastMembers(currentRoomId, room);
+  });
+
+  // Any member may answer (also in guided mode — it's not a board change),
+  // and change the answer until the check ends.
+  on('ready-answer', ({ ready }) => {
+    const room = rooms.get(currentRoomId);
+    if (!room?.readyCheck?.has(currentClientId) || typeof ready !== 'boolean') return;
+
+    room.readyCheck.set(currentClientId, ready);
+    broadcastMembers(currentRoomId, room);
+    if (completeReadyCheckIfAnswered(currentRoomId, room)) broadcastMembers(currentRoomId, room);
+  });
+
+  on('abort-ready-check', () => {
+    const room = rooms.get(currentRoomId);
+    if (!room?.readyCheck || !isAdmin(room, currentClientId)) return;
+
+    endReadyCheck(currentRoomId, room, 'aborted');
+    broadcastMembers(currentRoomId, room);
+  });
+
   // Only the room admin may toggle guided mode — this is the one action a
   // non-admin can never take, even before guided mode is on.
-  socket.on('set-guided-mode', ({ enabled }) => {
+  on('set-guided-mode', ({ enabled }) => {
     if (!currentRoomId) return;
     const room = rooms.get(currentRoomId);
     if (!room || !isAdmin(room, currentClientId)) return;
@@ -392,7 +472,7 @@ io.on('connection', (socket) => {
   });
 
   // Only the room admin may remotely show/hide the Electron overlay window.
-  socket.on('set-overlay-visible', ({ visible }) => {
+  on('set-overlay-visible', ({ visible }) => {
     if (!currentRoomId) return;
     const room = rooms.get(currentRoomId);
     if (!room || !isAdmin(room, currentClientId)) return;
@@ -424,6 +504,7 @@ function removeMember(roomId, room, clientId) {
   room.members.delete(clientId);
   room.adminClientIds.delete(clientId);
   room.names.delete(clientId);
+  room.readyCheck?.delete(clientId);
   console.log(`[${roomId}] ${logId(clientId)} left (${room.members.size} members)`);
 
   if (room.members.size === 0) {
@@ -441,6 +522,8 @@ function removeMember(roomId, room, clientId) {
     broadcastState(roomId, room);
   }
   broadcastMembers(roomId, room);
+  // The leaver may have been the last one the ready check was waiting for.
+  if (completeReadyCheckIfAnswered(roomId, room)) broadcastMembers(roomId, room);
 }
 
 app.use(express.static(path.join(__dirname, 'public')));

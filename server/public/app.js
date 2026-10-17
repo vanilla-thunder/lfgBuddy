@@ -36,11 +36,11 @@ const disconnectBtn    = document.getElementById('disconnect-btn');
 const copyLinkBtn      = document.getElementById('copy-link-btn');
 const copyAdminLinkBtn = document.getElementById('copy-admin-link-btn');
 const adminQrBtn       = document.getElementById('admin-qr-btn');
+const readyCheckBtn    = document.getElementById('ready-check-btn');
 const openInAppLink    = document.getElementById('open-in-app-link');
 const reconnectBanner  = document.getElementById('reconnect-banner');
 const guidedToggle       = document.getElementById('guided-toggle');
 const guidedModeCheckbox = document.getElementById('guided-mode-checkbox');
-const overlayVisibilityBtn = document.getElementById('overlay-visibility-btn');
 
 const drawingBoard = createDrawingBoard({
   wrap: document.getElementById('encounter-wrap'),
@@ -52,6 +52,15 @@ const drawingBoard = createDrawingBoard({
   },
   canDraw: () => Boolean(socket?.connected) && canInteract(),
   emit: (event, data) => socket?.connected && socket.emit(event, data),
+});
+
+// Last member list from the server — also the source of ready-check state.
+let currentMembers = [];
+const readyView = createReadyCheckView({
+  host: document.getElementById('board-panel'),
+  container: document.getElementById('ready-check'),
+  emit: (event, data) => socket?.connected && socket.emit(event, data),
+  isAdmin: () => isAdmin(),
 });
 
 // ── Restore saved values ──────────────────────────────────────────────────────
@@ -150,15 +159,22 @@ function canInteract() {
 function renderPermissions() {
   guidedToggle.classList.toggle('hidden', !isAdmin());
   guidedModeCheckbox.checked = state.guidedMode;
-  overlayVisibilityBtn.classList.toggle('hidden', !isAdmin());
   copyAdminLinkBtn.classList.toggle('hidden', !isAdmin());
   adminQrBtn.classList.toggle('hidden', !isAdmin());
   if (!isAdmin()) hideAdminQr();
-  overlayVisibilityBtn.textContent = state.overlayVisible === false ? 'Show Overlay' : 'Hide Overlay';
   areaLayer.classList.toggle('interactive', canInteract());
   activityPicker.classList.toggle('interactive', canInteract());
   backToActivitiesBtn.disabled = !canInteract();
   drawingBoard.updateControls();
+  renderReadyCheck();
+}
+
+// Admins start a ready check from the header; while it runs, the view in
+// shared/ready-check.js (member cards, answer buttons, abort) replaces the
+// board.
+function renderReadyCheck() {
+  readyCheckBtn.classList.toggle('hidden', !isAdmin() || isReadyCheckOpen(currentMembers));
+  readyView.update(currentMembers);
 }
 
 // Shown instead of the encounter view when the room has no activity chosen
@@ -381,6 +397,8 @@ function applyImageHidden({ encounterId, hidden }) {
 
 // Names are user input: rendered via textContent only, never as HTML.
 function renderMembers(members) {
+  currentMembers = members;
+  renderReadyCheck();
   memberList.replaceChildren();
   for (const member of members) {
     const chip = document.createElement('span');
@@ -388,7 +406,7 @@ function renderMembers(members) {
     chip.classList.toggle('offline', !member.online);
     chip.classList.toggle('self', member.self);
     chip.title = [member.isAdmin && 'Admin', !member.online && 'Reconnecting…'].filter(Boolean).join(' · ');
-    chip.textContent = `${member.isAdmin ? '👑 ' : ''}${member.name}${member.self ? ' (you)' : ''}`;
+    chip.textContent = `${readyMark(member)}${member.isAdmin ? '👑 ' : ''}${member.name}${member.self ? ' (you)' : ''}`;
     memberList.appendChild(chip);
   }
 }
@@ -513,6 +531,7 @@ function connectToRoom(code) {
   });
 
   socket.on('members', ({ members }) => renderMembers(members));
+  socket.on('ready-check-done', (result) => readyView.showResult(result));
   socket.on('icon-updated', (payload) => applyIconUpdate(payload));
   socket.on('svg-updated', (payload) => applySvgUpdate(payload));
   socket.on('stroke-added', (payload) => applyStrokeAdded(payload));
@@ -562,6 +581,7 @@ disconnectBtn.addEventListener('click', () => {
   iconPicker.classList.add('hidden');
   hideAdminQr();
   renderMembers([]);
+  readyView.hide();
   setStatus('');
   history.replaceState(null, '', '/');
 });
@@ -589,6 +609,10 @@ copyAdminLinkBtn.addEventListener('click', () => {
   copyLink(copyAdminLinkBtn, adminLinkFor(currentRoomId, state.adminToken), 'Copy this admin link (keep it private):');
 });
 
+readyCheckBtn.addEventListener('click', () => {
+  if (socket?.connected) socket.emit('start-ready-check', {});
+});
+
 adminQrBtn.addEventListener('click', () => {
   if (currentRoomId && state.adminToken) showAdminQr(adminLinkFor(currentRoomId, state.adminToken));
 });
@@ -597,12 +621,6 @@ adminQrBtn.addEventListener('click', () => {
 
 guidedModeCheckbox.addEventListener('change', () => {
   if (socket?.connected) socket.emit('set-guided-mode', { enabled: guidedModeCheckbox.checked });
-});
-
-// ── Overlay visibility ────────────────────────────────────────────────────────
-
-overlayVisibilityBtn.addEventListener('click', () => {
-  if (socket?.connected) socket.emit('set-overlay-visible', { visible: state.overlayVisible === false });
 });
 
 // ── Back to activity picker ──────────────────────────────────────────────────

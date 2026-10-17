@@ -11,6 +11,9 @@ let pendingJoin = null;
 // Starts interactive so the user can connect/pick an activity right away;
 // F9 switches to click-through.
 let isInteractive = true;
+// Set while a ready check has brought up the hidden overlay: the state to
+// return to (hidden, plus the interactive mode it had) once answered.
+let readyCheckRestore = null;
 
 // `npm run dev` (electron . --dev) targets a local server; everything else,
 // including protocol-link launches, targets production. The URL is fixed
@@ -219,6 +222,29 @@ app.whenReady().then(() => {
     } else {
       mainWindow.hide();
     }
+  });
+
+  // A ready check waiting for this user's answer shows a hidden overlay
+  // (without taking focus from the game). Once answered — or the check ends
+  // unanswered — it goes back to how it was: hidden again and, if the user
+  // pressed F9 to answer, locked again so the game gets the mouse back.
+  // An overlay that was already visible is left alone.
+  ipcMain.on('ready-check-pending', (_event, pending) => {
+    if (pending) {
+      if (!mainWindow.isVisible() && !readyCheckRestore) {
+        readyCheckRestore = { interactive: isInteractive };
+        mainWindow.showInactive();
+      }
+      return;
+    }
+    if (!readyCheckRestore) return;
+    const { interactive } = readyCheckRestore;
+    readyCheckRestore = null;
+    if (isInteractive !== interactive) {
+      isInteractive = interactive;
+      applyInteractive();
+    }
+    mainWindow.hide();
   });
 });
 

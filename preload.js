@@ -72,4 +72,9 @@ contextBridge.exposeInMainWorld('lfg', {
   setOverlayVisible(visible) {
     ipcRenderer.send('set-overlay-visible', Boolean(visible));
   },
+
+  // true while a ready check waits for this user's answer (see main.js).
+  setReadyCheckPending(pending) {
+    ipcRenderer.send('ready-check-pending', Boolean(pending));
+  },
 });

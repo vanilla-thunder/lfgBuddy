@@ -722,3 +722,107 @@ a.btn-secondary {
 /* Option held by another area of a 'move' group (shared/area-groups.js). */
 .icon-option.icon-held { opacity: 0.4; }
 .icon-option.icon-held:hover { opacity: 1; }
+
+/* ── Ready check view (shared/ready-check.js) ── */
+
+/* While a check runs (and while its result shows) the view replaces the
+   board: every other child of the board panel is hidden. */
+.ready-check-active > :not(#ready-check) { display: none !important; }
+
+.ready-check {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 16px;
+  border-radius: 8px;
+  background: transparent;
+  color: #fff;
+  -webkit-app-region: no-drag;
+}
+
+.ready-title { font-size: 24px; font-weight: 800; }
+.ready-tally { font-size: 15px; font-weight: 600; color: #b9bbbe; }
+
+.ready-members {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.ready-member {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 120px;
+  max-width: 100%;
+  padding: 14px 18px;
+  border-radius: 8px;
+  background: rgba(50, 50, 50, 0.7);
+}
+
+.ready-member.ready-ready { border-color: #57f287; background: rgba(87, 242, 135, 0.14); }
+.ready-member.ready-not-ready { border-color: #ed4245; background: rgba(237, 66, 69, 0.14); }
+.ready-member.self { box-shadow: 0 0 0 2px #5865f2; }
+.ready-member.offline { opacity: 0.5; }
+
+.ready-icon { font-size: 40px; line-height: 1; }
+
+.ready-name {
+  font-size: 16px;
+  font-weight: 700;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Own answer buttons: solid colors, fully opaque — also over the
+   translucent overlay. */
+.ready-actions {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.ready-answer {
+  flex: 1;
+  opacity: 1;
+  border: 3px solid transparent;
+  border-radius: 8px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 20px;
+  font-weight: 800;
+  padding: 14px 10px;
+  cursor: pointer;
+}
+
+.ready-yes { background: #248046; }
+.ready-yes:hover { background: #2d9d56; }
+.ready-no { background: #b3262a; }
+.ready-no:hover { background: #d1343a; }
+.ready-answer.active { border-color: #fff; box-shadow: 0 0 0 2px #5865f2; }
+
+.ready-footer { display: flex; gap: 12px; }
+
+.ready-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: #dcddde;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.ready-secondary:hover { background: rgba(255, 255, 255, 0.15); }
+.ready-abort { color: #ed4245; border-color: rgba(237, 66, 69, 0.4); }
+
+.ready-locked-hint { display: none; font-size: 13px; color: #b9bbbe; }

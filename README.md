@@ -32,6 +32,8 @@ Rooms are identified by a shared code (e.g. `TEAM-ALPHA`). All clients in the sa
 
 The first client to join a room becomes its **admin** (if all admins disconnect, admin rights pass to another remaining member, so a room can never get permanently stuck). Leaving only counts after a 15-second grace period: reloading the page or a short network drop rejoins with the same client ID and keeps admin rights — and a room you're alone in keeps its state instead of being wiped. Admins get a **Guided mode** checkbox in their UI. While guided mode is on, only admins can switch activities, navigate/reset encounters, draw, or interact with clickable areas — everyone else is read-only. This is enforced server-side (the server tracks each room's admins/`guidedMode` and rejects mutating events from non-admins), not just hidden in the UI, so a modified client can't bypass it.
 
+**Ready check.** Admins start one with **Ready Check** (web header / overlay footer) — regardless of guided mode. While it runs, it **replaces the board** (activity picker or encounter) in both clients: every member as a big card with their answer (✅ ❌ ⏳), and below them big, fully opaque ✅ Ready / ❌ Not ready buttons for your own answer (also in guided mode; changeable while it runs). Admins can abort it. There's no timeout: it ends when every current member has answered (members joining mid-check start as pending; members who leave drop out after the grace period) or an admin aborts; the result stays on the same view for 6 s (or until *Close*), then the board returns. The web member list below the board shows the answers too; the locked overlay (F9) shows the cards and "Press F9 to answer". A **hidden overlay** (F8) is brought up — without taking focus from the game — while a check waits for your answer, and returns to its previous state (hidden, and locked again if you pressed F9 to answer) once you've answered or the check ends; an already visible overlay is left alone. Server events: `start-ready-check` / `abort-ready-check` (admins), `ready-answer` `{ ready: boolean }`; state travels in the `members` list (`ready` per member — sent with the final answer before the check ends) plus `ready-check-done` `{ outcome, ready, notReady, total }`. View code: `shared/ready-check.js`.
+
 **Admin on several devices.** An admin can add their other devices as co-admins — e.g. draw on a phone while guided mode is on:
 
 - **Web:** the **Admin Link** button copies `<invite link>#admin=<token>`; open it on the other device (send it to yourself). **Admin QR** shows the same link as a QR code to scan with the phone instead. **Open in App** also carries the token for admins, so the admin's own overlay joins as admin.
@@ -75,6 +77,8 @@ docker compose up -d --build
 ```
 
 The image contains only the npm dependencies; `server/` and `shared/` are bind-mounted read-only into the container. Uploading new static files (`server/public/`, `shared/`, activity images) takes effect immediately. Changes to `server/index.js` or any `activity.js` need `docker compose restart` (they're loaded once at startup — and a restart drops all in-memory rooms). Changes to `server/package*.json` need `docker compose up -d --build`.
+
+> **Malformed events:** every socket handler in `server/index.js` is registered through `on()`, which hands it a plain object payload and catches exceptions — one bad event from a client must never crash the process (and with it every room). Register new client events the same way.
 
 > **Upload, then restart.** Whenever a change touches the socket protocol (new/changed events or payloads — typically `server/index.js` together with `shared/` or `server/public/`), upload all files and then run `docker compose restart`. Until the restart, browsers already get the new client code while the old server code is still running, and the mismatched events are silently dropped (e.g. drawings stop syncing). The same applies locally: restart `npm run server` after pulling such a change, and restart the Electron overlay (`npm run client`), since it doesn't reload `shared/` on its own.
 
@@ -209,6 +213,7 @@ lfgBuddy/
 │   ├── drawing.js        # Drawing board: toolbar, canvas, pointer input
 │   ├── admin-qr.js       # Admin link QR popup
 │   ├── area-groups.js    # Icon picker filtering for area groups
+│   ├── ready-check.js    # Ready check view (replaces the board while a check runs)
 │   └── vendor/           # Third-party code, vendored unmodified (qrcode-generator)
 ├── client/               # Electron renderer
 │   ├── index.html

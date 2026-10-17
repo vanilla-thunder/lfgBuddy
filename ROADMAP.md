@@ -8,7 +8,7 @@ guided-mode-aware unless stated otherwise.
 |---|---|---|
 | 1 | [Drawing pane](#1-drawing-pane) | Done |
 | 2 | [Interactive areas grouping](#2-interactive-areas-grouping) | Done |
-| 3 | [Ready check](#3-ready-check) | Planned |
+| 3 | [Ready check](#3-ready-check) | Done |
 | 4 | [Countdown timer](#4-countdown-timer) | Planned |
 | 5 | [External picture via URL](#5-external-picture-via-url) | Planned |
 

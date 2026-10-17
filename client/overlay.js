@@ -35,6 +35,7 @@ const disconnectBtn     = document.getElementById('disconnect-btn');
 const adminLinkRow      = document.getElementById('admin-link-row');
 const copyAdminLinkBtn  = document.getElementById('copy-admin-link-btn');
 const adminQrBtn        = document.getElementById('admin-qr-btn');
+const readyCheckBtn     = document.getElementById('ready-check-btn');
 const reconnectBanner   = document.getElementById('reconnect-banner');
 // Two copies: one above the activity picker, one in the encounter nav row.
 const guidedToggles         = document.querySelectorAll('.guided-toggle');
@@ -50,6 +51,20 @@ const drawingBoard = createDrawingBoard({
   },
   canDraw: canInteract,
   emit: (event, data) => window.lfg.emit(event, data),
+});
+
+// Last member list from the server. The overlay shows no member list of
+// its own — only the ready-check view, which replaces the board while a
+// check runs and is derived from it.
+let currentMembers = [];
+// Last values sent to the main process, so it only hears about changes.
+let lastOverlayVisible = null;
+let lastReadyPending = false;
+const readyView = createReadyCheckView({
+  host: document.getElementById('board-panel'),
+  container: document.getElementById('ready-check'),
+  emit: (event, data) => window.lfg.emit(event, data),
+  isAdmin: () => isAdmin(),
 });
 
 // ── Restore saved settings ────────────────────────────────────────────────────
@@ -128,6 +143,23 @@ function renderPermissions() {
   activityPicker.classList.toggle('interactive', canInteract());
   backToActivitiesBtn.disabled = !canInteract();
   drawingBoard.updateControls();
+  renderReadyCheck();
+}
+
+// Admins start a ready check from the footer's admin row; while it runs,
+// the view in shared/ready-check.js replaces the board.
+function renderReadyCheck() {
+  readyCheckBtn.classList.toggle('hidden', isReadyCheckOpen(currentMembers));
+  readyView.update(currentMembers);
+  setReadyPending(currentMembers.find((m) => m.self)?.ready === 'pending');
+}
+
+// While a check waits for this user's answer, main.js brings up a hidden
+// overlay; when that's over it restores the previous window state.
+function setReadyPending(pending) {
+  if (pending === lastReadyPending) return;
+  lastReadyPending = pending;
+  window.lfg.setReadyCheckPending(pending);
 }
 
 // Shown instead of the encounter view when the room has no activity chosen
@@ -454,6 +486,9 @@ function leaveRoom() {
   state = { activityId: null, encounterIndex: 0, encounters: {}, isAdmin: false, adminToken: null, guidedMode: false, overlayVisible: true };
   iconPicker.classList.add('hidden');
   hideAdminQr();
+  currentMembers = [];
+  readyView.hide();
+  setReadyPending(false);
   setStatus('');
 }
 
@@ -485,6 +520,10 @@ copyAdminLinkBtn.addEventListener('click', () => {
   window.lfg.copyText(link);
   copyAdminLinkBtn.textContent = 'Copied!';
   setTimeout(() => { copyAdminLinkBtn.textContent = 'Copy Admin Link'; }, 1500);
+});
+
+readyCheckBtn.addEventListener('click', () => {
+  window.lfg.emit('start-ready-check', {});
 });
 
 adminQrBtn.addEventListener('click', () => {
@@ -527,11 +566,23 @@ window.lfg.on('state-sync', (newState) => {
   renderActivityPicker();
   renderEncounterNav();
   renderEncounter();
-  window.lfg.setOverlayVisible(state.overlayVisible !== false);
+  // Only on an actual change of the room's remote visibility — re-applying
+  // it on every state-sync would re-show an overlay hidden with F8 (or by
+  // a ready check returning to its previous state) on any room change.
+  const overlayVisible = state.overlayVisible !== false;
+  if (overlayVisible !== lastOverlayVisible) {
+    lastOverlayVisible = overlayVisible;
+    window.lfg.setOverlayVisible(overlayVisible);
+  }
 });
 
 window.lfg.on('icon-updated', (payload) => applyIconUpdate(payload));
 window.lfg.on('svg-updated', (payload) => applySvgUpdate(payload));
+window.lfg.on('members', ({ members }) => {
+  currentMembers = members;
+  renderReadyCheck();
+});
+window.lfg.on('ready-check-done', (result) => readyView.showResult(result));
 window.lfg.on('stroke-added', (payload) => applyStrokeAdded(payload));
 window.lfg.on('stroke-erased', (payload) => applyStrokeErased(payload));
 window.lfg.on('drawing-cleared', (payload) => applyDrawingCleared(payload));
