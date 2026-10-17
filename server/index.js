@@ -17,6 +17,7 @@ const {
   activities: activityList,
   activitiesById,
   areasByActivityEncounter,
+  groupsByActivityEncounter,
   optionIdsByActivity,
   mountStaticRoutes,
 } = activities;
@@ -275,6 +276,21 @@ io.on('connection', (socket) => {
     if (iconId !== null && !validOptions?.has(iconId)) return;
 
     const encounterState = getOrCreateEncounterState(room, encounterId);
+
+    // Area groups (see server/activities/index.js): in a 'hide' group an
+    // option held by another area can't be picked; in a 'move' group it's
+    // taken over — cleared on the other area first, so clients never see
+    // it twice.
+    const group = areaDef.group ? groupsByActivityEncounter.get(room.activityId)?.get(encounterId)?.get(areaDef.group) : null;
+    if (group && iconId !== null) {
+      const holders = group.areaIds.filter((id) => id !== areaId && encounterState.icons.get(id) === iconId);
+      if (holders.length > 0 && group.mode === 'hide') return;
+      for (const holderId of holders) {
+        encounterState.icons.delete(holderId);
+        io.to(currentRoomId).emit('icon-updated', { encounterId, areaId: holderId, iconId: null });
+      }
+    }
+
     if (iconId === null) encounterState.icons.delete(areaId);
     else encounterState.icons.set(areaId, iconId);
 

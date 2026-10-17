@@ -38,11 +38,14 @@ module.exports = {
       id: 'encounter-1',
       name: 'Flooded Inspection',
       image: 'encounter-1.png',
+      // Each glyph belongs to one room: picking a glyph another room already
+      // has moves it here (see README → Area groups).
+      groups: { rooms: 'move' },
       areas: [
-        { id: 'L2', type: 'icon-select', optionList: 'glyphs', x: 10,  y: 15,  w: 50, h: 50 },
-        { id: 'L1', type: 'icon-select', optionList: 'glyphs', x: 10,  y: -15, w: 50, h: 50 },
-        { id: 'R2', type: 'icon-select', optionList: 'glyphs', x: -10, y: 15,  w: 50, h: 50 },
-        { id: 'R1', type: 'icon-select', optionList: 'glyphs', x: -10, y: -15, w: 50, h: 50 },
+        { id: 'L2', type: 'icon-select', optionList: 'glyphs', group: 'rooms', x: 10,  y: 15,  w: 50, h: 50 },
+        { id: 'L1', type: 'icon-select', optionList: 'glyphs', group: 'rooms', x: 10,  y: -15, w: 50, h: 50 },
+        { id: 'R2', type: 'icon-select', optionList: 'glyphs', group: 'rooms', x: -10, y: 15,  w: 50, h: 50 },
+        { id: 'R1', type: 'icon-select', optionList: 'glyphs', group: 'rooms', x: -10, y: -15, w: 50, h: 50 },
 
         /*{
           id: 'hazard-toggle',

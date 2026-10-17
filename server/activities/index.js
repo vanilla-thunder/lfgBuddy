@@ -12,6 +12,14 @@ const express = require('express');
 const ACTIVITIES_DIR = __dirname;
 const ACTIVITY_TYPES = ['dungeon', 'raid'];
 
+// Area groups (per encounter): icon-select areas tagged with the same
+// `group` share their option list's options —
+//   'hide': an option assigned to one area of the group is removed from the
+//           pickers of the group's other areas;
+//   'move': every option stays available; picking one that another area of
+//           the group holds clears it there.
+const GROUP_MODES = ['hide', 'move'];
+
 function imageUrl(activityId, filename) {
   return `/activities/${activityId}/images/${filename}`;
 }
@@ -33,6 +41,34 @@ function resolveOptionLists(activityId, optionLists) {
   );
 }
 
+// Config errors surface at startup, like an invalid activity type, rather
+// than as silently ungrouped areas at runtime.
+function validateGroups(activityId, encounter) {
+  const where = `Activity "${activityId}", encounter "${encounter.id}"`;
+  const groups = encounter.groups ?? {};
+  for (const [groupId, mode] of Object.entries(groups)) {
+    if (!GROUP_MODES.includes(mode)) {
+      throw new Error(`${where}: group "${groupId}" has invalid mode "${mode}" (expected one of: ${GROUP_MODES.join(', ')})`);
+    }
+  }
+
+  const optionListByGroup = new Map();
+  for (const area of encounter.areas) {
+    if (area.group === undefined) continue;
+    if (area.type !== 'icon-select') {
+      throw new Error(`${where}: area "${area.id}" has a group but only icon-select areas can be grouped`);
+    }
+    if (!Object.hasOwn(groups, area.group)) {
+      throw new Error(`${where}: area "${area.id}" uses undefined group "${area.group}" (declare it in the encounter's groups)`);
+    }
+    const optionList = optionListByGroup.get(area.group);
+    if (optionList !== undefined && optionList !== area.optionList) {
+      throw new Error(`${where}: group "${area.group}" mixes option lists "${optionList}" and "${area.optionList}"`);
+    }
+    optionListByGroup.set(area.group, area.optionList);
+  }
+}
+
 function loadActivity(id) {
   const def = require(path.join(ACTIVITIES_DIR, id, 'activity.js'));
   if (def.type !== undefined && !ACTIVITY_TYPES.includes(def.type)) {
@@ -45,12 +81,16 @@ function loadActivity(id) {
     active: def.active ?? true,
     thumbnail: def.thumbnail ? imageUrl(id, def.thumbnail) : null,
     optionLists: resolveOptionLists(id, def.optionLists ?? {}),
-    encounters: (def.encounters ?? []).map((encounter) => ({
-      id: encounter.id,
-      name: encounter.name,
-      image: imageUrl(id, encounter.image),
-      areas: encounter.areas.map((area) => resolveArea(id, area)),
-    })),
+    encounters: (def.encounters ?? []).map((encounter) => {
+      validateGroups(id, encounter);
+      return {
+        id: encounter.id,
+        name: encounter.name,
+        image: imageUrl(id, encounter.image),
+        groups: encounter.groups ?? {},
+        areas: encounter.areas.map((area) => resolveArea(id, area)),
+      };
+    }),
   };
 }
 
@@ -70,6 +110,21 @@ const areasByActivityEncounter = new Map(
   activities.map((activity) => [
     activity.id,
     new Map(activity.encounters.map((encounter) => [encounter.id, new Map(encounter.areas.map((a) => [a.id, a]))])),
+  ])
+);
+
+// activityId -> encounterId -> groupId -> { mode, areaIds } (enforces area
+// groups in set-icon)
+const groupsByActivityEncounter = new Map(
+  activities.map((activity) => [
+    activity.id,
+    new Map(activity.encounters.map((encounter) => [
+      encounter.id,
+      new Map(Object.entries(encounter.groups).map(([groupId, mode]) => [
+        groupId,
+        { mode, areaIds: encounter.areas.filter((a) => a.group === groupId).map((a) => a.id) },
+      ])),
+    ])),
   ])
 );
 
@@ -94,6 +149,7 @@ module.exports = {
   activities,
   activitiesById,
   areasByActivityEncounter,
+  groupsByActivityEncounter,
   optionIdsByActivity,
   mountStaticRoutes,
 };

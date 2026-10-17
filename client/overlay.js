@@ -366,12 +366,17 @@ function openIconPicker(anchorEl, area) {
   clearBtn.addEventListener('click', () => pickIcon(area.id, null));
   iconPicker.appendChild(clearBtn);
 
-  for (const icon of options) {
+  // Area groups (shared/area-groups.js): 'hide' leaves out options another
+  // area of the group holds, 'move' shows them dimmed — picking moves them.
+  const encounter = getCurrentEncounter();
+  const icons = getEncounterState(encounter.id).icons;
+  for (const { option: icon, heldBy } of groupPickerOptions(encounter, icons, area, options)) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'icon-option';
     renderIconContent(btn, icon);
-    btn.title = icon.label;
+    btn.title = heldBy ? `${icon.label} — move from ${heldBy}` : icon.label;
+    btn.classList.toggle('icon-held', heldBy !== null);
     btn.addEventListener('click', () => pickIcon(area.id, icon.id));
     iconPicker.appendChild(btn);
   }

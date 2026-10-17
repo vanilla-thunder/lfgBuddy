@@ -725,3 +725,7 @@ body:not(.interactive-mode) .draw-toolbar {
 .board.toolbar-flipped { flex-direction: row-reverse; }
 .board.toolbar-flipped .draw-color-popup { left: auto; right: calc(100% + 4px); }
 .draw-side { margin-top: 4px; font-weight: 700; }
+
+/* Option held by another area of a 'move' group (shared/area-groups.js). */
+.icon-option.icon-held { opacity: 0.4; }
+.icon-option.icon-held:hover { opacity: 1; }

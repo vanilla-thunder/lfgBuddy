@@ -718,3 +718,7 @@ a.btn-secondary {
   .board.toolbar-flipped .draw-color-popup { top: auto; bottom: calc(100% + 6px); left: 0; right: auto; }
   .draw-side { margin-top: 0; margin-left: auto; }
 }
+
+/* Option held by another area of a 'move' group (shared/area-groups.js). */
+.icon-option.icon-held { opacity: 0.4; }
+.icon-option.icon-held:hover { opacity: 1; }

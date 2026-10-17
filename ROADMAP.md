@@ -7,10 +7,10 @@ guided-mode-aware unless stated otherwise.
 | # | Feature | Status |
 |---|---|---|
 | 1 | [Drawing pane](#1-drawing-pane) | Done |
-| 2 | interactive areas grouping | Planned |
-| 3 | [Ready check](#2-ready-check) | Planned |
-| 4 | [Countdown timer](#3-countdown-timer) | Planned |
-| 5 | [External picture via URL](#4-external-picture-via-url) | Planned |
+| 2 | [Interactive areas grouping](#2-interactive-areas-grouping) | Done |
+| 3 | [Ready check](#3-ready-check) | Planned |
+| 4 | [Countdown timer](#4-countdown-timer) | Planned |
+| 5 | [External picture via URL](#5-external-picture-via-url) | Planned |
 
 ---
 
@@ -36,15 +36,28 @@ Grouping Interactive areas should change the handling of available options.
 First grouping mode removes already assigned options from option lists for other areas in the same group.
 Second grouping mode keeps already selected options available, but selecting an option already selected in another area unselects it there. 
 
+Implemented as per-encounter `groups: { <id>: 'hide' | 'move' }` plus `group: '<id>'` on `icon-select` areas
+(see README → Activities → Area groups); enforced server-side, validated at startup.
+
 ## 3. Ready check
 
-Admin starts a ready check; every connected client answers ready / not ready;
-everyone sees the tally and when all are ready.
+An admin starts a ready check; every member answers ready / not ready;
+everyone sees when all are ready.
 
-Open questions:
-- The room has no player identities by design. A tally ("4/6 ready") works
-  without names; showing *who* isn't ready would need display names.
-- Timeout for unanswered checks?
+- **Who:** only admins can start (and abort) a ready check — regardless of
+  guided mode; enforced server-side.
+- **Lifetime:** no timeout. The check stays open until every member has
+  answered, or an admin aborts it.
+
+- **Web:** each member's answer is shown next to their name in the member
+  list (e.g. ✅ / ❌ / ⏳ pending), so it's clear *who* isn't ready yet.
+- **Electron overlay:** no member list there, so it shows a compact tally
+  ("4/6 ready") plus its own Ready / Not ready buttons.
+- **Server:** stores answers per member for the running check and sends them
+  with the existing per-client `members` list (names and flags only, never
+  client IDs). Members joining mid-check count as pending; members leaving
+  (after the reconnect grace period) drop out of the tally — which can
+  complete the check if everyone remaining has answered.
 
 ## 4. Countdown timer
 

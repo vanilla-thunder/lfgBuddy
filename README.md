@@ -173,8 +173,10 @@ module.exports = {
   encounters: [
     {
       id: '...', name: '...', image: '<file>.svg', // filename only, resolved from this activity's images/
+      groups: { glyphs: 'hide' }, // optional: groupId -> 'hide' | 'move' (see Area groups below)
       areas: [
         { id, type: 'icon-select', optionList: 'roles', x, y, w, h },
+        { id, type: 'icon-select', optionList: 'roles', group: 'glyphs', x, y, w, h },
         { id, type: 'toggle-svg',
           trigger: { x, y, w, h },
           overlay: { x, y, w, h, svg: '<file>.svg' } },
@@ -183,6 +185,13 @@ module.exports = {
   ],
 };
 ```
+
+**Area groups.** `icon-select` areas of one encounter can share a `group` (declared in the encounter's `groups` with a mode) so they share their options:
+
+- `'hide'` — an option assigned to one area of the group is removed from the pickers of the group's other areas (e.g. each glyph used at most once).
+- `'move'` — every option stays available; picking one that another area of the group holds clears it there. The picker shows such options dimmed (tooltip "move from <area>").
+
+Ungrouped areas behave as before. The server enforces both modes in `set-icon`, so a modified client can't bypass `'hide'`; the loader rejects bad configs at startup (unknown mode, undeclared group, group on a non-`icon-select` area, mixed option lists within a group). The picker filtering lives in `shared/area-groups.js`, used by both clients.
 
 `x`/`y`/`w`/`h` are absolute px offsets from the encounter image's edges (not percentages, and not affected by how large the image renders). `x`/`y` ≥ 0 anchor from the left/top edge; negative `x`/`y` anchor from the right/bottom edge instead (e.g. `x: -5` = 5px from the right edge), so an area can stay pinned to a corner. `w`/`h` are always the area's pixel width/height. `server/activities/index.js` discovers every subdirectory with an `activity.js` at startup, rewrites each `image`/`svg`/`thumbnail` filename into its served URL (`/activities/<id>/images/<file>`), validates `type` against `['dungeon', 'raid']` (throwing at startup if it's set to anything else), builds the validation lookups `set-icon`/`toggle-svg` use, and mounts one static route per activity so its `images/` folder is servable — `server/index.js` itself only knows the room/socket protocol, not activity content.
 
@@ -199,6 +208,7 @@ lfgBuddy/
 ├── shared/               # Client code used by both clients (served at /shared/)
 │   ├── drawing.js        # Drawing board: toolbar, canvas, pointer input
 │   ├── admin-qr.js       # Admin link QR popup
+│   ├── area-groups.js    # Icon picker filtering for area groups
 │   └── vendor/           # Third-party code, vendored unmodified (qrcode-generator)
 ├── client/               # Electron renderer
 │   ├── index.html
