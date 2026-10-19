@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, screen, session } = require('electron');
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, screen, session, webFrameMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -84,12 +84,79 @@ function trustServer(origin) {
 // The overlay page's CSP, sent as a response header (built per page load)
 // so it can name the trusted servers — a <meta> CSP is static, and a second
 // one could only narrow it. Images only from trusted servers; scripts and
-// styles only from the app itself. Trusting a new server reloads the page.
+// styles only from the app itself; frames only the YouTube player (watch
+// together, shared/video.js). Trusting a new server reloads the page.
+const VIDEO_ORIGIN = 'https://www.youtube-nocookie.com';
+
 function installContentSecurityPolicy() {
   session.defaultSession.webRequest.onHeadersReceived({ urls: ['file:///*'] }, (details, callback) => {
-    const csp = `default-src 'self'; style-src 'self'; img-src 'self' ${[...trustedServers].join(' ')}`;
+    const csp = `default-src 'self'; style-src 'self'; img-src 'self' ${[...trustedServers].join(' ')}; frame-src ${VIDEO_ORIGIN}`;
     callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [csp] } });
   });
+}
+
+// YouTube refuses embeds without a Referer (error 153), and a file:// page
+// sends none. As YouTube asks of apps, the player frame identifies the app by
+// its ID instead.
+const VIDEO_REFERER = 'https://io.github.vanilla-thunder.lfgbuddy/';
+
+function installVideoReferer() {
+  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: [`${VIDEO_ORIGIN}/embed/*`] }, (details, callback) => {
+    if (details.resourceType !== 'subFrame') {
+      callback({});
+      return;
+    }
+    callback({ requestHeaders: { ...details.requestHeaders, Referer: VIDEO_REFERER } });
+  });
+}
+
+// YouTube's embed has no option to hide its overlays (title bar, play
+// button, "More videos", logo, links) — over a game they're just clutter,
+// and nobody can click them anyway (shared/video.js). So the player frame
+// gets a stylesheet hiding them: the current embed UI (yt*/ytm* elements)
+// and the classic one (ytp-*), which YouTube may still serve. Captions too,
+// as a backup to unloading them through the player API. Class names are
+// YouTube's internals and can change; then the overlays just reappear.
+// Note: YouTube's API terms don't allow hiding player UI or branding.
+const VIDEO_HIDE_CSS = `
+  .ytPlayerControlsContainerHost, cued-overlay, .ytmCuedOverlayHost,
+  .ytp-chrome-top, .ytp-chrome-bottom, .ytp-gradient-top, .ytp-gradient-bottom,
+  .ytp-large-play-button, .ytp-pause-overlay, .ytp-watermark, .ytp-youtube-button,
+  .ytp-ce-element, .html5-endscreen, .ytp-impression-link, .ytp-show-cards-title,
+  .ytp-paid-content-overlay, .ytp-cards-teaser, .ytp-caption-window-container {
+    display: none !important;
+  }`;
+const VIDEO_HIDE_SCRIPT = `(() => {
+  const style = document.createElement('style');
+  style.textContent = ${JSON.stringify(VIDEO_HIDE_CSS)};
+  document.documentElement.appendChild(style);
+})();`;
+
+// Only the player frame embedded directly in our page; the script is a
+// constant, and nothing it returns is used.
+function hideVideoOverlays(isMainFrame, frameProcessId, frameRoutingId) {
+  if (isMainFrame) return;
+  const frame = webFrameMain.fromId(frameProcessId, frameRoutingId);
+  if (!frame || frame.parent !== mainWindow.webContents.mainFrame) return;
+  if (frame.origin !== VIDEO_ORIGIN || !frame.url.startsWith(`${VIDEO_ORIGIN}/embed/`)) return;
+  frame.executeJavaScript(VIDEO_HIDE_SCRIPT).catch((err) => console.error('Could not hide video overlays:', err));
+}
+
+// Next/previous media keys → ±10 s in the video (shared/video.js), only
+// while one is loaded — globally registered keys are taken from every other
+// app. Released on every page load too: a reloaded page starts without a
+// video. Play/pause needs nothing here: it reaches the player directly.
+const VIDEO_MEDIA_KEYS = { MediaNextTrack: 1, MediaPreviousTrack: -1 };
+
+function setVideoMediaKeys(enabled) {
+  for (const [accelerator, direction] of Object.entries(VIDEO_MEDIA_KEYS)) {
+    if (!enabled) {
+      globalShortcut.unregister(accelerator);
+    } else if (!globalShortcut.isRegistered(accelerator)
+      && !globalShortcut.register(accelerator, () => mainWindow.webContents.send('video-media-key', direction))) {
+      console.error(`Could not register ${accelerator} (taken by another app?)`);
+    }
+  }
 }
 
 function applyInteractive() {
@@ -264,8 +331,15 @@ function createWindow() {
   mainWindow.on('close', saveBounds);
   // The renderer defaults to locked, so sync it with the initial mode once
   // the page (and its IPC listener) is loaded — also covers reloads.
-  mainWindow.webContents.on('did-start-loading', () => {
+  // Main-frame navigations only: did-start-loading also fires when the
+  // video player's iframe loads — without a did-finish-load after it.
+  mainWindow.webContents.on('did-start-navigation', ({ isMainFrame, isSameDocument }) => {
+    if (!isMainFrame || isSameDocument) return;
     pageReady = false;
+    setVideoMediaKeys(false);
+  });
+  mainWindow.webContents.on('did-frame-finish-load', (_event, isMainFrame, frameProcessId, frameRoutingId) => {
+    hideVideoOverlays(isMainFrame, frameProcessId, frameRoutingId);
   });
   mainWindow.webContents.on('did-finish-load', () => {
     pageReady = true;
@@ -305,11 +379,16 @@ if (process.defaultApp) {
 
 pendingJoin = findJoinLink(process.argv);
 
+// Watch together: the video must start when someone else presses play —
+// the user is in the game, not clicking the overlay.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 app.whenReady().then(() => {
   // app.quit() is async — don't open a window in the instance that's exiting.
   if (!gotInstanceLock) return;
   loadTrustedServers();
   installContentSecurityPolicy();
+  installVideoReferer();
   createWindow();
 
   // Silent, Sigstore-verified updates — only for the installed production
@@ -360,6 +439,8 @@ app.whenReady().then(() => {
       mainWindow.hide();
     }
   });
+
+  ipcMain.on('video-media-keys', (_event, enabled) => setVideoMediaKeys(Boolean(enabled)));
 
   // A ready check waiting for this user's answer shows a hidden overlay
   // (without taking focus from the game). Once answered — or the check ends

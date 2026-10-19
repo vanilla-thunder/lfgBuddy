@@ -48,6 +48,7 @@
           <button class="btn-secondary" id="copy-link-btn" title="Copy the invite URL">Copy URL</button>
           <button class="btn-secondary hidden" id="ready-check-btn" title="Ask everyone in the room whether they're ready">Ready Check</button>
           <button class="btn-secondary hidden" id="timer-btn" title="Start a timer everyone sees in sync">Timer</button>
+          <button class="btn-secondary hidden" id="video-btn" title="Watch a YouTube video together, in sync">Video</button>
           <button class="btn-danger" id="disconnect-btn">Leave</button>
         </div>
       </div>
@@ -58,12 +59,14 @@
 
       <div class="panel panel-activity" id="board-panel">
         <div id="ready-check" role="status"></div>
+        <div id="video"></div>
         <div class="activity-picker hidden" id="activity-picker"></div>
 
         <div id="activity-controls">
           <div class="encounter-nav">
             <button class="btn-secondary" id="back-to-activities-btn">Back</button>
             <button class="btn-secondary" id="encounter-reset-btn">Reset</button>
+            <button class="btn-secondary hidden" id="picture-btn" title="Replace this encounter's picture with one from a URL">🌐 Picture</button>
             <span class="encounter-label" id="encounter-label"></span>
             <button class="btn-secondary" id="encounter-prev-btn">‹ Prev</button>
             <button class="btn-secondary" id="encounter-next-btn">Next ›</button>
@@ -92,6 +95,8 @@
   <script src="/shared/area-groups.js"></script>
   <script src="/shared/ready-check.js"></script>
   <script src="/shared/timer.js"></script>
+  <script src="/shared/picture-dialog.js"></script>
+  <script src="/shared/video.js"></script>
   <script src="/shared/vendor/qrcode-generator.js"></script>
   <script src="/shared/admin-qr.js"></script>
   <script src="app.js"></script>

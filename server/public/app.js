@@ -27,6 +27,8 @@ const activityControls  = document.getElementById('activity-controls');
 const backToActivitiesBtn = document.getElementById('back-to-activities-btn');
 const encounterPrevBtn  = document.getElementById('encounter-prev-btn');
 const encounterResetBtn = document.getElementById('encounter-reset-btn');
+const pictureBtn        = document.getElementById('picture-btn');
+const encounterWrap     = document.getElementById('encounter-wrap');
 const encounterNextBtn  = document.getElementById('encounter-next-btn');
 const encounterLabel    = document.getElementById('encounter-label');
 const encounterImage    = document.getElementById('encounter-image');
@@ -38,6 +40,7 @@ const copyAdminLinkBtn = document.getElementById('copy-admin-link-btn');
 const adminQrBtn       = document.getElementById('admin-qr-btn');
 const readyCheckBtn    = document.getElementById('ready-check-btn');
 const timerBtn         = document.getElementById('timer-btn');
+const videoBtn         = document.getElementById('video-btn');
 const openInAppLink    = document.getElementById('open-in-app-link');
 const reconnectBanner  = document.getElementById('reconnect-banner');
 const guidedToggle       = document.getElementById('guided-toggle');
@@ -63,6 +66,18 @@ const timer = createTimer({
   emit: (event, data) => socket?.connected && socket.emit(event, data),
   isAdmin: () => isAdmin(),
 });
+
+// Watch together (shared/video.js): replaces the board while a video is
+// loaded; admins load one from the header.
+const videoPlayer = createVideoPlayer({
+  container: document.getElementById('video'),
+  host: document.getElementById('board-panel'),
+  emit: (event, data) => socket?.connected && socket.emit(event, data),
+  canControl: () => Boolean(socket?.connected) && canInteract(),
+  canUseMediaKeys: () => Boolean(socket?.connected) && canInteract(),
+  isAdmin: () => isAdmin(),
+});
+let videoDialogHandle = null;
 
 // Last member list from the server — also the source of ready-check state.
 let currentMembers = [];
@@ -139,7 +154,7 @@ function getEncounterState(encounterId) {
 }
 
 function emptyEncounterState() {
-  return { icons: {}, svg: [], strokes: [], imageHidden: false };
+  return { icons: {}, svg: [], strokes: [], imageHidden: false, customImage: null };
 }
 
 // Like getEncounterState, but stores the fresh state for an untouched
@@ -180,6 +195,14 @@ function renderPermissions() {
   renderReadyCheck();
   timerBtn.classList.toggle('hidden', !isAdmin());
   timer.updateControls();
+  videoBtn.classList.toggle('hidden', !isAdmin());
+  videoPlayer.updateControls();
+}
+
+function applyVideo(payload) {
+  videoPlayer.apply(payload);
+  videoDialogHandle?.close();
+  videoDialogHandle = null;
 }
 
 // Admins start a ready check from the header; while it runs, the view in
@@ -285,6 +308,7 @@ function renderEncounterNav() {
   encounterPrevBtn.disabled = !canInteract() || state.encounterIndex <= 0;
   encounterNextBtn.disabled = !canInteract() || state.encounterIndex >= total - 1;
   encounterResetBtn.disabled = !canInteract();
+  pictureBtn.classList.toggle('hidden', !isAdmin() || !encounter);
 }
 
 function renderEncounter() {
@@ -296,9 +320,10 @@ function renderEncounter() {
     return;
   }
 
-  encounterImage.src = encounter.image;
   const activity = getCurrentActivity();
   const encounterState = getEncounterState(encounter.id);
+  encounterImage.src = encounterState.customImage?.url ?? encounter.image;
+  encounterWrap.classList.toggle('custom-image', Boolean(encounterState.customImage));
 
   for (const area of encounter.areas) {
     if (area.type === 'icon-select') {
@@ -366,6 +391,27 @@ function applyIconUpdate({ encounterId, areaId, iconId }) {
     const el = findAreaEl(areaId);
     if (el) renderIconContent(el, findIcon(getCurrentActivity(), findAreaDef(areaId)?.optionList, iconId));
   }
+}
+
+// External picture replacing the encounter's (server-fetched, see
+// shared/picture-dialog.js). Errors only go to the admin who asked.
+let pictureDialogHandle = null;
+
+function applyCustomImage({ encounterId, customImage }) {
+  ensureEncounterState(encounterId).customImage = customImage;
+  if (getCurrentEncounter()?.id === encounterId) renderEncounter();
+  pictureDialogHandle?.close();
+  pictureDialogHandle = null;
+}
+
+function openPictureForCurrentEncounter() {
+  const encounter = getCurrentEncounter();
+  if (!encounter || !isAdmin()) return;
+  pictureDialogHandle = openPictureDialog({
+    currentHost: getEncounterState(encounter.id).customImage?.host ?? null,
+    onLoad: (url) => socket?.connected && socket.emit('set-custom-image', { encounterId: encounter.id, url }),
+    onRemove: () => socket?.connected && socket.emit('clear-custom-image', { encounterId: encounter.id }),
+  });
 }
 
 function applySvgUpdate({ encounterId, areaId, visible }) {
@@ -535,6 +581,7 @@ function connectToRoom(code) {
   socket.on('state-sync', (newState) => {
     state = newState;
     timer.apply(state.timer, true);
+    videoPlayer.apply(state.video);
     // Used once: from here on the server knows this client as an admin.
     pendingAdminToken = null;
     setupScreen.classList.add('hidden');
@@ -552,8 +599,12 @@ function connectToRoom(code) {
   socket.on('members', ({ members }) => renderMembers(members));
   socket.on('ready-check-done', (result) => readyView.showResult(result));
   socket.on('timer', (payload) => timer.apply(payload));
+  socket.on('video', (payload) => applyVideo(payload));
+  socket.on('video-error', ({ message }) => videoDialogHandle?.showError(message));
   socket.on('icon-updated', (payload) => applyIconUpdate(payload));
   socket.on('svg-updated', (payload) => applySvgUpdate(payload));
+  socket.on('custom-image-updated', (payload) => applyCustomImage(payload));
+  socket.on('custom-image-error', ({ message }) => pictureDialogHandle?.showError(message));
   socket.on('stroke-added', (payload) => applyStrokeAdded(payload));
   socket.on('stroke-erased', (payload) => applyStrokeErased(payload));
   socket.on('drawing-cleared', (payload) => applyDrawingCleared(payload));
@@ -603,6 +654,7 @@ disconnectBtn.addEventListener('click', () => {
   renderMembers([]);
   readyView.hide();
   timer.hide();
+  videoPlayer.hide();
   setStatus('');
   history.replaceState(null, '', '/');
 });
@@ -640,6 +692,14 @@ readyCheckBtn.addEventListener('click', () => {
   if (socket?.connected) socket.emit('start-ready-check', {});
 });
 
+videoBtn.addEventListener('click', () => {
+  videoDialogHandle = openVideoDialog({
+    hasVideo: Boolean(state.video),
+    onLoad: (url) => socket?.connected && socket.emit('set-video', { url }),
+    onRemove: () => socket?.connected && socket.emit('clear-video', {}),
+  });
+});
+
 adminQrBtn.addEventListener('click', () => {
   if (currentRoomId && state.adminToken) showAdminQr(adminLinkFor(currentRoomId, state.adminToken));
 });
@@ -670,6 +730,8 @@ encounterNextBtn.addEventListener('click', () => {
     socket.emit('set-encounter', { encounterIndex: state.encounterIndex + 1 });
   }
 });
+
+pictureBtn.addEventListener('click', openPictureForCurrentEncounter);
 
 encounterResetBtn.addEventListener('click', () => {
   if (socket?.connected) socket.emit('reset-encounter', {});

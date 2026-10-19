@@ -36,6 +36,7 @@
       <div id="timer"></div>
       <div class="activity-section" id="board-panel">
         <div id="ready-check" role="status"></div>
+        <div id="video"></div>
         <div class="hidden" id="activity-picker-view">
           <div class="picker-bar">
             <label class="guided-toggle hidden" title="Guided mode — only admins can interact with the dashboard, areas and drawing while this is on">
@@ -49,6 +50,7 @@
           <div class="encounter-nav">
             <button class="nav-btn" id="back-to-activities-btn" disabled>Back</button>
             <button class="nav-btn" id="encounter-reset-btn" disabled>Reset</button>
+            <button class="nav-btn hidden" id="picture-btn" title="Replace this encounter's picture with one from a URL">🌐</button>
             <label class="guided-toggle hidden" title="Guided mode — only admins can interact with the dashboard, areas and drawing while this is on">
               <input type="checkbox" class="guided-mode-checkbox" aria-label="Guided mode"><span class="guided-switch" aria-hidden="true"><span class="guided-knob">👑</span></span>
             </label>
@@ -75,6 +77,7 @@
           <button class="admin-link-btn" id="admin-qr-btn" title="Show the admin link as a QR code to scan with your phone">Admin QR</button>
           <button class="admin-link-btn" id="ready-check-btn" title="Ask everyone in the room whether they're ready">Ready Check</button>
           <button class="admin-link-btn" id="timer-btn" title="Start a timer everyone sees in sync">Timer</button>
+          <button class="admin-link-btn" id="video-btn" title="Watch a YouTube video together, in sync">Video</button>
         </div>
         <button class="disconnect-btn" id="disconnect-btn">Leave Room</button>
       </div>
@@ -87,6 +90,8 @@
   <script src="../shared/area-groups.js"></script>
   <script src="../shared/ready-check.js"></script>
   <script src="../shared/timer.js"></script>
+  <script src="../shared/picture-dialog.js"></script>
+  <script src="../shared/video.js"></script>
   <script src="../shared/vendor/qrcode-generator.js"></script>
   <script src="../shared/admin-qr.js"></script>
   <script src="overlay.js"></script>

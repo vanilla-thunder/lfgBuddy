@@ -92,6 +92,16 @@ contextBridge.exposeInMainWorld('lfg', {
     ipcRenderer.send('set-overlay-visible', Boolean(visible));
   },
 
+  // true while a video is loaded: main.js then holds the next/previous
+  // media keys and reports them via onVideoMediaKey (+1 / -1).
+  setVideoMediaKeys(enabled) {
+    ipcRenderer.send('video-media-keys', Boolean(enabled));
+  },
+
+  onVideoMediaKey(callback) {
+    ipcRenderer.on('video-media-key', (_evt, direction) => callback(direction === -1 ? -1 : 1));
+  },
+
   // true while a ready check waits for this user's answer (see main.js).
   setReadyCheckPending(pending) {
     ipcRenderer.send('ready-check-pending', Boolean(pending));

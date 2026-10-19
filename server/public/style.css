@@ -983,3 +983,176 @@ a.btn-secondary {
 
 /* Don't inherit full-width text-input styles. */
 .timer-replace input { width: auto; margin: 0; flex: none; }
+
+/* ── External picture (shared/picture-dialog.js) ── */
+
+/* A custom picture replaces the encounter's: its areas are positioned for
+   the original, so they're hidden. */
+.encounter-wrap.custom-image #area-layer { display: none; }
+
+.picture-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-app-region: no-drag;
+}
+
+.picture-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 460px;
+  max-width: 95%;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  color: #fff;
+}
+
+.picture-title { font-size: 16px; font-weight: 700; text-align: center; }
+.picture-current { font-size: 12px; color: #b9bbbe; text-align: center; overflow-wrap: anywhere; }
+.picture-hint { font-size: 12px; color: #8e9297; }
+.picture-status { font-size: 12px; min-height: 1em; color: #b9bbbe; }
+.picture-status.error { color: #ed4245; }
+
+.picture-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 8px 14px;
+}
+
+.picture-buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+
+.picture-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.picture-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); }
+.picture-btn:disabled { opacity: 0.5; cursor: default; }
+.picture-remove { color: #ed4245; border-color: rgba(237, 66, 69, 0.4); }
+
+/* ── Watch together (shared/video.js) ── */
+
+/* While a video is loaded it replaces the board (a running ready check
+   or a timer shown instead of the board still take precedence). */
+.video-replaces-board > :not(#ready-check):not(#video) { display: none !important; }
+
+.video {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.video-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* YouTube's controls are off and the player ignores the mouse: playback
+   only changes through the controls below, for everyone. */
+.video-iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  pointer-events: none;
+}
+
+.video-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #ed4245;
+  font-weight: 600;
+  text-align: center;
+}
+
+.video-start {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 12px 20px;
+  cursor: pointer;
+}
+
+/* Load dialog: the picture dialog's card, wider for long links. */
+.picture-card.video-card { width: 640px; }
+
+.video-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.video-btn {
+  flex: none;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.video-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); }
+.video-btn:disabled { opacity: 0.4; cursor: default; }
+.video-play { min-width: 40px; }
+.video-close { color: #ed4245; border-color: rgba(237, 66, 69, 0.4); }
+
+.video-controls input[type="range"] {
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  accent-color: var(--accent);
+}
+
+.video-controls .video-seek { flex: 1; min-width: 80px; }
+.video-controls .video-volume { width: 80px; }
+
+.video-time {
+  flex: none;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: #b9bbbe;
+  white-space: nowrap;
+}

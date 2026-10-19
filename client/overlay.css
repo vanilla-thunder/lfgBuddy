@@ -504,13 +504,15 @@ body:not(.interactive-mode) .area-icon {
   gap: 4px;
 }
 
+/* Footer buttons are opaque: the panel is see-through, and whatever is
+   behind the window (game, desktop) would otherwise show through them. */
 .admin-link-btn {
   flex: 1;
-  background: rgba(88, 101, 242, 0.12);
-  border: 1px solid rgba(88, 101, 242, 0.3);
+  background: #262a45;
+  border: 1px solid #3c4384;
   border-radius: 4px;
   padding: 6px;
-  color: #8e97f5;
+  color: #aab1ff;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
@@ -518,23 +520,23 @@ body:not(.interactive-mode) .area-icon {
 }
 
 .admin-link-btn:hover {
-  background: rgba(88, 101, 242, 0.22);
+  background: #30366a;
 }
 
 .disconnect-btn {
   width: 100%;
-  background: rgba(237, 66, 69, 0.12);
-  border: 1px solid rgba(237, 66, 69, 0.2);
+  background: #3a2125;
+  border: 1px solid #6b2d31;
   border-radius: 4px;
   padding: 6px;
-  color: #ed4245;
+  color: #ff6b6e;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .disconnect-btn:hover {
-  background: rgba(237, 66, 69, 0.22);
+  background: #4d262a;
 }
 
 /* Reconnecting banner */
@@ -981,3 +983,177 @@ body:not(.interactive-mode) .timer-cancel { display: none; }
 
 /* Don't inherit full-width text-input styles. */
 .timer-replace input { width: auto; margin: 0; flex: none; }
+
+/* ── External picture (shared/picture-dialog.js) ── */
+
+/* A custom picture replaces the encounter's: its areas are positioned for
+   the original, so they're hidden. */
+.encounter-wrap.custom-image #area-layer { display: none; }
+
+.picture-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-app-region: no-drag;
+}
+
+.picture-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 300px;
+  max-width: 95%;
+  padding: 12px;
+  background: rgba(28, 31, 35, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  color: #fff;
+}
+
+.picture-title { font-size: 12px; font-weight: 700; text-align: center; }
+.picture-current { font-size: 10px; color: #b9bbbe; text-align: center; overflow-wrap: anywhere; }
+.picture-hint { font-size: 10px; color: #8e9297; }
+.picture-status { font-size: 10px; min-height: 1em; color: #b9bbbe; }
+.picture-status.error { color: #ed4245; }
+
+.picture-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.picture-buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+
+.picture-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.picture-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); }
+.picture-btn:disabled { opacity: 0.5; cursor: default; }
+.picture-remove { color: #ed4245; border-color: rgba(237, 66, 69, 0.4); }
+
+/* ── Watch together (shared/video.js) ── */
+
+/* While a video is loaded it replaces the board (a running ready check
+   or a timer shown instead of the board still take precedence). */
+.video-replaces-board > :not(#ready-check):not(#video) { display: none !important; }
+
+.video {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.video-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* YouTube's controls are off and the player ignores the mouse: playback
+   only changes through the controls below, for everyone. */
+.video-iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  pointer-events: none;
+}
+
+.video-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #ed4245;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.video-start {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #5865f2;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+/* Load dialog: the picture dialog's card, wider for long links. */
+.picture-card.video-card { width: 440px; }
+
+.video-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  -webkit-app-region: no-drag;
+}
+
+.video-btn {
+  flex: none;
+  background: #2c2f36;
+  border: 1px solid #4a4d55;
+  border-radius: 4px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+
+.video-btn:hover:not(:disabled) { background: #3a3e47; }
+.video-btn:disabled { color: #72767d; cursor: default; }
+.video-play { min-width: 28px; }
+.video-close { background: #3a2125; color: #ff6b6e; border-color: #6b2d31; }
+
+.video-controls input[type="range"] { margin: 0; accent-color: #5865f2; }
+.video-seek { flex: 1; min-width: 60px; }
+.video-volume { width: 56px; }
+
+.video-time {
+  flex: none;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: #b9bbbe;
+  white-space: nowrap;
+}
+
+/* Locked (click-through): the video stays, its controls can't be clicked
+   anyway. */
+body:not(.interactive-mode) .video-controls,
+body:not(.interactive-mode) .video-start { display: none; }

@@ -6,6 +6,7 @@ const express = require('express');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 const activities = require('./activities');
+const { fetchExternalImage, PictureError } = require('./external-image');
 
 const app = express();
 const httpServer = createServer(app);
@@ -33,12 +34,17 @@ mountStaticRoutes(app);
 //     strokes: Array<{ id, color, points }>,
 //     pointCount: number,
 //     imageHidden: boolean,
+//     customImage: { id, host } | null,  // external picture replacing the encounter's
 //   }>,
 //   members: Map<clientId, number>,  // open sockets per client
 //   leaveTimers: Map<clientId, Timeout>,
 //   names: Map<clientId, string>,     // display names, sanitized
 //   readyCheck: Map<clientId, boolean|null> | null,  // running check: answer per member (null = pending)
 //   timer: { endsAt, durationMs, label, replaceBoard, timeout } | null,  // running timer (server clock)
+//   video: { videoId, playing, position, updatedAt } | null,  // watch together; position in s at updatedAt (server clock)
+//   images: Map<imageId, { buffer, contentType }>,  // external pictures' bytes (see customImage)
+//   imageBytes: number,  // total size of `images`
+//   fetchingImage: boolean,  // one picture download per room at a time
 //   adminClientIds: Set<clientId>,
 //   adminToken: string,  // secret in admin links; joining with it grants admin
 //   guidedMode: boolean,
@@ -77,7 +83,7 @@ function sanitizeName(raw) {
 }
 
 function emptyEncounterState() {
-  return { icons: new Map(), svg: new Set(), strokes: [], pointCount: 0, imageHidden: false };
+  return { icons: new Map(), svg: new Set(), strokes: [], pointCount: 0, imageHidden: false, customImage: null };
 }
 
 // Drawing board limits — mirrored in the clients' drawing.js. Strokes are
@@ -107,6 +113,7 @@ function parseStroke({ id, color, points }) {
 function getOrCreateRoom(roomId) {
   if (!rooms.has(roomId)) {
     rooms.set(roomId, {
+      id: roomId,
       activityId: null,
       encounterIndex: 0,
       encounters: new Map(),
@@ -115,6 +122,10 @@ function getOrCreateRoom(roomId) {
       names: new Map(),
       readyCheck: null,
       timer: null,
+      video: null,
+      images: new Map(),
+      imageBytes: 0,
+      fetchingImage: false,
       adminClientIds: new Set(),
       adminToken: crypto.randomBytes(16).toString('hex'),
       guidedMode: false,
@@ -184,6 +195,93 @@ function clearTimer(room) {
   room.timer = null;
 }
 
+// ── Watch together (YouTube) ─────────────────────────────────────────────────
+// Admins load/close a video; every member may play, pause and seek (only
+// admins in guided mode). Only the video ID ever leaves the server — clients
+// build the embed URL themselves, and the server never fetches anything.
+// Like the timer, the server keeps the playback position on its own clock and
+// sends the *current* position; clients extrapolate it locally while playing.
+const YOUTUBE_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+const YOUTUBE_HOSTS = new Set([
+  'youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com',
+  'youtube-nocookie.com', 'www.youtube-nocookie.com',
+]);
+const YOUTUBE_ID_PATHS = new Set(['embed', 'shorts', 'live', 'v']);
+const MAX_VIDEO_URL_LENGTH = 2048;
+const MAX_VIDEO_POSITION = 24 * 60 * 60;
+
+// "90", "90s", "1m30s", "1h2m3s" (YouTube's t= / start=) → seconds, else 0.
+function parseVideoStart(raw) {
+  const match = /^(?:(\d{1,2})h)?(?:(\d{1,4})m)?(?:(\d{1,5})s?)?$/.exec(raw ?? '');
+  if (!match) return 0;
+  const [, h = 0, m = 0, s = 0] = match;
+  return Math.min(Number(h) * 3600 + Number(m) * 60 + Number(s), MAX_VIDEO_POSITION);
+}
+
+// A YouTube link (watch, youtu.be, shorts, live, embed) or a bare video ID
+// → { videoId, start }, or null.
+function parseYouTubeUrl(raw) {
+  const input = String(raw ?? '').trim();
+  if (input.length > MAX_VIDEO_URL_LENGTH) return null;
+  if (YOUTUBE_ID_RE.test(input)) return { videoId: input, start: 0 };
+
+  let url;
+  try {
+    url = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`);
+  } catch {
+    return null;
+  }
+  if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.username || url.password) return null;
+
+  const [, first, second] = url.pathname.split('/');
+  let videoId = null;
+  if (url.hostname === 'youtu.be') videoId = first;
+  else if (YOUTUBE_HOSTS.has(url.hostname)) {
+    videoId = first === 'watch' ? url.searchParams.get('v') : YOUTUBE_ID_PATHS.has(first) ? second : null;
+  }
+  if (!YOUTUBE_ID_RE.test(videoId ?? '')) return null;
+  return { videoId, start: parseVideoStart(url.searchParams.get('t') ?? url.searchParams.get('start')) };
+}
+
+function videoPosition(video) {
+  const elapsed = video.playing ? (Date.now() - video.updatedAt) / 1000 : 0;
+  return Math.min(video.position + elapsed, MAX_VIDEO_POSITION);
+}
+
+function videoPayload(room) {
+  if (!room.video) return null;
+  return { videoId: room.video.videoId, playing: room.video.playing, position: videoPosition(room.video) };
+}
+
+// ── External pictures ────────────────────────────────────────────────────────
+// An admin can replace the current encounter's picture with one from a URL.
+// The server downloads it (server/external-image.js: SSRF-hardened, https,
+// public addresses only, ≤ 5 MB, PNG/JPEG/GIF/WebP) and serves it from
+// memory at /rooms/<room>/images/<random id>; Reset, switching activity or
+// the room closing frees it again.
+const MAX_ROOM_IMAGE_BYTES = 20 * 1024 * 1024;
+const IMAGE_ID_RE = /^[0-9a-f]{32}$/;
+
+function customImagePayload(room, encounterState) {
+  const image = encounterState.customImage;
+  if (!image) return null;
+  return { url: `/rooms/${encodeURIComponent(room.id)}/images/${image.id}`, host: image.host };
+}
+
+function dropCustomImage(room, encounterState) {
+  const image = encounterState?.customImage;
+  if (!image) return;
+  room.imageBytes -= room.images.get(image.id)?.buffer.length ?? 0;
+  room.images.delete(image.id);
+  encounterState.customImage = null;
+}
+
+function dropAllCustomImages(room) {
+  room.images.clear();
+  room.imageBytes = 0;
+  for (const encounterState of room.encounters.values()) encounterState.customImage = null;
+}
+
 function serializeRoom(room, clientId) {
   const admin = isAdmin(room, clientId);
   return {
@@ -192,13 +290,20 @@ function serializeRoom(room, clientId) {
     encounters: Object.fromEntries(
       [...room.encounters.entries()].map(([encounterId, r]) => [
         encounterId,
-        { icons: Object.fromEntries(r.icons), svg: [...r.svg], strokes: r.strokes, imageHidden: r.imageHidden },
+        {
+          icons: Object.fromEntries(r.icons),
+          svg: [...r.svg],
+          strokes: r.strokes,
+          imageHidden: r.imageHidden,
+          customImage: customImagePayload(room, r),
+        },
       ])
     ),
     isAdmin: admin,
     adminToken: admin ? room.adminToken : null,
     guidedMode: room.guidedMode,
     timer: timerPayload(room),
+    video: videoPayload(room),
     overlayVisible: room.overlayVisible,
   };
 }
@@ -279,11 +384,14 @@ io.on('connection', (socket) => {
   // with no/invalid payload (e.g. emit('set-guided-mode')) threw inside
   // socket.io and crashed the server — every room for every user.
   function on(event, handler) {
+    const fail = (err) => console.error(`[${currentRoomId ?? '-'}] ${event} handler failed:`, err);
     socket.on(event, (payload) => {
       try {
-        handler(payload !== null && typeof payload === 'object' ? payload : {});
+        // async handlers too: a rejected promise would otherwise be an
+        // unhandled rejection — which also takes the process down.
+        handler(payload !== null && typeof payload === 'object' ? payload : {})?.catch?.(fail);
       } catch (err) {
-        console.error(`[${currentRoomId ?? '-'}] ${event} handler failed:`, err);
+        fail(err);
       }
     });
   }
@@ -323,6 +431,7 @@ io.on('connection', (socket) => {
     if (!room || !canAct(room, currentClientId)) return;
     room.activityId = activityId;
     room.encounterIndex = 0;
+    dropAllCustomImages(room);
     room.encounters.clear();
     broadcastState(currentRoomId, room);
   });
@@ -345,6 +454,7 @@ io.on('connection', (socket) => {
     const encounterId = currentEncounterId(room);
     if (!encounterId) return;
 
+    dropCustomImage(room, room.encounters.get(encounterId));
     room.encounters.set(encounterId, emptyEncounterState());
     broadcastState(currentRoomId, room);
   });
@@ -493,6 +603,60 @@ io.on('connection', (socket) => {
     broadcastMembers(currentRoomId, room);
   });
 
+  // Admins only (regardless of guided mode): it makes the server fetch an
+  // arbitrary URL, so not every member should be able to trigger that.
+  // Errors go back to the requester only.
+  on('set-custom-image', async ({ encounterId, url }) => {
+    const room = rooms.get(currentRoomId);
+    if (!room || !isAdmin(room, currentClientId)) return;
+    if (typeof encounterId !== 'string' || encounterId !== currentEncounterId(room)) return;
+    const fail = (message) => socket.emit('custom-image-error', { message });
+    if (room.fetchingImage) {
+      fail('Another picture is still loading.');
+      return;
+    }
+
+    const activityId = room.activityId;
+    room.fetchingImage = true;
+    let image;
+    try {
+      image = await fetchExternalImage(url);
+    } catch (err) {
+      if (!(err instanceof PictureError)) console.error(`[${room.id}] picture download failed:`, err);
+      fail(err instanceof PictureError ? err.message : 'The download failed.');
+      return;
+    } finally {
+      room.fetchingImage = false;
+    }
+
+    // The room may have closed or switched activity while downloading.
+    if (rooms.get(room.id) !== room || room.activityId !== activityId) return;
+    const encounterState = getOrCreateEncounterState(room, encounterId);
+    const replacedBytes = room.images.get(encounterState.customImage?.id)?.buffer.length ?? 0;
+    if (room.imageBytes - replacedBytes + image.buffer.length > MAX_ROOM_IMAGE_BYTES) {
+      fail('This room has too many pictures — reset another encounter first.');
+      return;
+    }
+
+    dropCustomImage(room, encounterState);
+    const id = crypto.randomBytes(16).toString('hex');
+    room.images.set(id, { buffer: image.buffer, contentType: image.contentType });
+    room.imageBytes += image.buffer.length;
+    encounterState.customImage = { id, host: image.host };
+    io.to(room.id).emit('custom-image-updated', { encounterId, customImage: customImagePayload(room, encounterState) });
+  });
+
+  on('clear-custom-image', ({ encounterId }) => {
+    const room = rooms.get(currentRoomId);
+    if (!room || !isAdmin(room, currentClientId)) return;
+    if (typeof encounterId !== 'string' || encounterId !== currentEncounterId(room)) return;
+    const encounterState = room.encounters.get(encounterId);
+    if (!encounterState?.customImage) return;
+
+    dropCustomImage(room, encounterState);
+    io.to(currentRoomId).emit('custom-image-updated', { encounterId, customImage: null });
+  });
+
   on('start-timer', ({ seconds, label, replaceBoard }) => {
     const room = rooms.get(currentRoomId);
     if (!room || !isAdmin(room, currentClientId)) return;
@@ -521,6 +685,42 @@ io.on('connection', (socket) => {
 
     clearTimer(room);
     io.to(currentRoomId).emit('timer', null);
+  });
+
+  // Admins only (regardless of guided mode). A new video replaces the
+  // current one and starts paused, at the link's t= if it has one.
+  on('set-video', ({ url }) => {
+    const room = rooms.get(currentRoomId);
+    if (!room || !isAdmin(room, currentClientId)) return;
+    const parsed = parseYouTubeUrl(url);
+    if (!parsed) {
+      socket.emit('video-error', { message: 'Not a YouTube video link.' });
+      return;
+    }
+
+    room.video = { videoId: parsed.videoId, playing: false, position: parsed.start, updatedAt: Date.now() };
+    io.to(currentRoomId).emit('video', videoPayload(room));
+  });
+
+  on('clear-video', () => {
+    const room = rooms.get(currentRoomId);
+    if (!room?.video || !isAdmin(room, currentClientId)) return;
+
+    room.video = null;
+    io.to(currentRoomId).emit('video', null);
+  });
+
+  // Play/pause/seek: the sender's wanted state. Carries the videoId it was
+  // meant for, so a late event can't act on a newly loaded video. Sent to
+  // the sender too — the server's state is the one everyone follows.
+  on('video-state', ({ videoId, playing, position }) => {
+    const room = rooms.get(currentRoomId);
+    if (!room?.video || !canAct(room, currentClientId) || videoId !== room.video.videoId) return;
+    if (typeof playing !== 'boolean' || typeof position !== 'number') return;
+    if (!Number.isFinite(position) || position < 0 || position > MAX_VIDEO_POSITION) return;
+
+    room.video = { videoId, playing, position, updatedAt: Date.now() };
+    io.to(currentRoomId).emit('video', videoPayload(room));
   });
 
   // Only the room admin may toggle guided mode — this is the one action a
@@ -594,6 +794,28 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Client code shared with the Electron overlay (repo-root shared/, mounted
 // next to server/ in the Docker container).
 app.use('/shared', express.static(path.join(__dirname, '..', 'shared')));
+
+// External pictures (see customImagePayload). The id is random and only
+// sent to room members; the bytes were verified as PNG/JPEG/GIF/WebP, and
+// nosniff + a locked-down CSP keep browsers from treating them as anything
+// else.
+app.get('/rooms/:roomId/images/:imageId', (req, res) => {
+  const image = IMAGE_ID_RE.test(req.params.imageId)
+    ? rooms.get(String(req.params.roomId).toUpperCase())?.images.get(req.params.imageId)
+    : null;
+  if (!image) {
+    res.status(404).end();
+    return;
+  }
+  res.set({
+    'Content-Type': image.contentType,
+    'Content-Length': String(image.buffer.length),
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'; sandbox",
+    'Cache-Control': 'private, max-age=86400, immutable',
+  });
+  res.end(image.buffer);
+});
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, rooms: rooms.size });

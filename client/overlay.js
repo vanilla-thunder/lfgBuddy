@@ -39,6 +39,8 @@ const activityControls  = document.getElementById('activity-controls');
 const backToActivitiesBtn = document.getElementById('back-to-activities-btn');
 const encounterPrevBtn  = document.getElementById('encounter-prev-btn');
 const encounterResetBtn = document.getElementById('encounter-reset-btn');
+const pictureBtn        = document.getElementById('picture-btn');
+const encounterWrap     = document.getElementById('encounter-wrap');
 const encounterNextBtn  = document.getElementById('encounter-next-btn');
 const encounterLabel    = document.getElementById('encounter-label');
 const encounterImage    = document.getElementById('encounter-image');
@@ -50,6 +52,7 @@ const copyAdminLinkBtn  = document.getElementById('copy-admin-link-btn');
 const adminQrBtn        = document.getElementById('admin-qr-btn');
 const readyCheckBtn     = document.getElementById('ready-check-btn');
 const timerBtn          = document.getElementById('timer-btn');
+const videoBtn          = document.getElementById('video-btn');
 const reconnectBanner   = document.getElementById('reconnect-banner');
 // Two copies: one above the activity picker, one in the encounter nav row.
 const guidedToggles         = document.querySelectorAll('.guided-toggle');
@@ -76,6 +79,20 @@ const timer = createTimer({
   emit: (event, data) => window.lfg.emit(event, data),
   isAdmin: () => isAdmin(),
 });
+
+// Watch together (shared/video.js): replaces the board while a video is
+// loaded; admins load one from the footer's admin row. Controls only in
+// interactive mode (F9), like the rest of the board; media keys always.
+const videoPlayer = createVideoPlayer({
+  container: document.getElementById('video'),
+  host: document.getElementById('board-panel'),
+  emit: (event, data) => window.lfg.emit(event, data),
+  canControl: canInteract,
+  // Also while locked (F9): media keys are how you control it from the game.
+  canUseMediaKeys: () => !isLocked(),
+  isAdmin: () => isAdmin(),
+});
+let videoDialogHandle = null;
 
 // Last member list from the server. The overlay shows no member list of
 // its own — only the ready-check view, which replaces the board while a
@@ -127,7 +144,7 @@ function getEncounterState(encounterId) {
 }
 
 function emptyEncounterState() {
-  return { icons: {}, svg: [], strokes: [], imageHidden: false };
+  return { icons: {}, svg: [], strokes: [], imageHidden: false, customImage: null };
 }
 
 // Like getEncounterState, but stores the fresh state for an untouched
@@ -169,6 +186,24 @@ function renderPermissions() {
   drawingBoard.updateControls();
   renderReadyCheck();
   timer.updateControls();
+  videoPlayer.updateControls();
+}
+
+function applyVideo(payload) {
+  videoPlayer.apply(payload);
+  setVideoMediaKeys(Boolean(payload));
+  videoDialogHandle?.close();
+  videoDialogHandle = null;
+}
+
+// Next/previous media keys skip ±10 s while a video is loaded; main.js only
+// holds them then, so other media players keep them the rest of the time.
+let lastVideoMediaKeys = false;
+
+function setVideoMediaKeys(enabled) {
+  if (enabled === lastVideoMediaKeys) return;
+  lastVideoMediaKeys = enabled;
+  window.lfg.setVideoMediaKeys(enabled);
 }
 
 // Admins start a ready check from the footer's admin row; while it runs,
@@ -282,6 +317,8 @@ function renderEncounterNav() {
   encounterPrevBtn.disabled = !canInteract() || state.encounterIndex <= 0;
   encounterNextBtn.disabled = !canInteract() || state.encounterIndex >= total - 1;
   encounterResetBtn.disabled = !canInteract() || total === 0;
+  pictureBtn.classList.toggle('hidden', !isAdmin() || !encounter);
+  pictureBtn.disabled = !canInteract();
 }
 
 // Area coordinates are absolute px offsets from the encounter image's edges.
@@ -316,9 +353,10 @@ function renderEncounter() {
     return;
   }
 
-  encounterImage.src = assetUrl(encounter.image);
   const activity = getCurrentActivity();
   const encounterState = getEncounterState(encounter.id);
+  encounterImage.src = assetUrl(encounterState.customImage?.url ?? encounter.image);
+  encounterWrap.classList.toggle('custom-image', Boolean(encounterState.customImage));
 
   for (const area of encounter.areas) {
     if (area.type === 'icon-select') {
@@ -362,6 +400,27 @@ function applyIconUpdate({ encounterId, areaId, iconId }) {
     const el = findAreaEl(areaId);
     if (el) renderIconContent(el, findIcon(getCurrentActivity(), findAreaDef(areaId)?.optionList, iconId));
   }
+}
+
+// External picture replacing the encounter's (server-fetched, see
+// shared/picture-dialog.js). Errors only go to the admin who asked.
+let pictureDialogHandle = null;
+
+function applyCustomImage({ encounterId, customImage }) {
+  ensureEncounterState(encounterId).customImage = customImage;
+  if (getCurrentEncounter()?.id === encounterId) renderEncounter();
+  pictureDialogHandle?.close();
+  pictureDialogHandle = null;
+}
+
+function openPictureForCurrentEncounter() {
+  const encounter = getCurrentEncounter();
+  if (!encounter || !isAdmin()) return;
+  pictureDialogHandle = openPictureDialog({
+    currentHost: getEncounterState(encounter.id).customImage?.host ?? null,
+    onLoad: (url) => window.lfg.emit('set-custom-image', { encounterId: encounter.id, url }),
+    onRemove: () => window.lfg.emit('clear-custom-image', { encounterId: encounter.id }),
+  });
 }
 
 function applySvgUpdate({ encounterId, areaId, visible }) {
@@ -523,6 +582,8 @@ function leaveRoom() {
   currentMembers = [];
   readyView.hide();
   timer.hide();
+  videoPlayer.hide();
+  setVideoMediaKeys(false);
   setReadyPending(false);
   setStatus('');
 }
@@ -588,6 +649,14 @@ readyCheckBtn.addEventListener('click', () => {
   window.lfg.emit('start-ready-check', {});
 });
 
+videoBtn.addEventListener('click', () => {
+  videoDialogHandle = openVideoDialog({
+    hasVideo: Boolean(state.video),
+    onLoad: (url) => window.lfg.emit('set-video', { url }),
+    onRemove: () => window.lfg.emit('clear-video', {}),
+  });
+});
+
 adminQrBtn.addEventListener('click', () => {
   const link = adminLink();
   if (link) showAdminQr(link);
@@ -622,6 +691,8 @@ window.lfg.on('activities-manifest', (m) => {
 window.lfg.on('state-sync', (newState) => {
   state = newState;
   timer.apply(state.timer, true);
+  videoPlayer.apply(state.video);
+  setVideoMediaKeys(Boolean(state.video));
   setupScreen.classList.add('hidden');
   overlayScreen.classList.remove('hidden');
   reconnectBanner.classList.add('hidden');
@@ -641,18 +712,24 @@ window.lfg.on('state-sync', (newState) => {
 
 window.lfg.on('icon-updated', (payload) => applyIconUpdate(payload));
 window.lfg.on('svg-updated', (payload) => applySvgUpdate(payload));
+window.lfg.on('custom-image-updated', (payload) => applyCustomImage(payload));
+window.lfg.on('custom-image-error', ({ message }) => pictureDialogHandle?.showError(message));
 window.lfg.on('members', ({ members }) => {
   currentMembers = members;
   renderReadyCheck();
 });
 window.lfg.on('ready-check-done', (result) => readyView.showResult(result));
 window.lfg.on('timer', (payload) => timer.apply(payload));
+window.lfg.on('video', (payload) => applyVideo(payload));
+window.lfg.on('video-error', ({ message }) => videoDialogHandle?.showError(message));
 window.lfg.on('stroke-added', (payload) => applyStrokeAdded(payload));
 window.lfg.on('stroke-erased', (payload) => applyStrokeErased(payload));
 window.lfg.on('drawing-cleared', (payload) => applyDrawingCleared(payload));
 window.lfg.on('image-hidden-updated', (payload) => applyImageHidden(payload));
 
 // ── Hotkey feedback from main process ─────────────────────────────────────────
+
+window.lfg.onVideoMediaKey((direction) => videoPlayer.mediaKeySkip(direction));
 
 window.lfg.onToggleInteractive((interactive) => {
   isInteractive = interactive;
@@ -691,6 +768,8 @@ encounterNextBtn.addEventListener('click', () => {
   const total = getCurrentActivity()?.encounters.length ?? 0;
   if (state.encounterIndex < total - 1) window.lfg.emit('set-encounter', { encounterIndex: state.encounterIndex + 1 });
 });
+
+pictureBtn.addEventListener('click', openPictureForCurrentEncounter);
 
 encounterResetBtn.addEventListener('click', () => {
   window.lfg.emit('reset-encounter', {});

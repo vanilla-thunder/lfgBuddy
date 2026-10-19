@@ -11,7 +11,7 @@ guided-mode-aware unless stated otherwise.
 | 3 | [Ready check](#3-ready-check) | Done |
 | 4 | [Electron app auto-update](#4-electron-app-auto-update) | Done |
 | 5 | [Timer](#5-timer) | Done |
-| 6 | [External picture via URL](#6-external-picture-via-url) | Planned |
+| 6 | [External picture via URL](#6-external-picture-via-url) | Done |
 
 ---
 
@@ -108,10 +108,11 @@ Notes:
 
 Show a picture from an arbitrary URL (e.g. a custom strat map) to the room.
 
-Security considerations (must be resolved before implementation):
-- Loading the URL directly in every client leaks every member's IP to an
-  arbitrary host and requires loosening the Electron CSP `img-src`.
-- Proxying through the server avoids both but introduces SSRF risk: block
-  private/loopback/link-local ranges (after DNS resolution), allow only
-  `https`, cap size, verify the content type, and ideally re-encode.
-- Restrict to the room admin and validate URL length/scheme server-side.
+Decided and implemented: the **server** fetches the picture (members' IPs
+never reach the external site; the overlay CSP stays limited to trusted
+servers), SSRF-hardened in `server/external-image.js` — https only, public
+addresses only (checked after DNS, connection pinned to that address), no
+redirects, ≤ 5 MB, PNG/JPEG/GIF/WebP by magic bytes, never SVG. Admins only.
+It **replaces the current encounter's picture** (areas hidden, drawing on
+top) until removed, reset or the activity changes. See README → External
+picture.
